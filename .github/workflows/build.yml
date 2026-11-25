@@ -1,0 +1,53 @@
+name: Compilation Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérification des shaders (fxc)
+        shell: pwsh
+        run: ./tools/check_shaders.ps1
+
+      - name: Configuration CMake
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Compilation (Release)
+        run: cmake --build build --config Release --parallel
+
+      - name: Préparation du paquet
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/MeteoEau | Out-Null
+          Copy-Item build/Release/MeteoEau.exe dist/MeteoEau/
+          Copy-Item -Recurse shaders dist/MeteoEau/shaders
+          Copy-Item README.md dist/MeteoEau/
+          Compress-Archive -Path dist/MeteoEau -DestinationPath dist/MeteoEau-windows-x64.zip -Force
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeteoEau-windows-x64
+          path: dist/MeteoEau-windows-x64.zip
+
+      - name: Publication « derniere-version »
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete derniere-version --yes --cleanup-tag 2>$null
+          gh release create derniere-version dist/MeteoEau-windows-x64.zip `
+            --title "Dernière version (compilée automatiquement)" `
+            --notes "Exécutable Windows x64 compilé depuis le commit ${{ github.sha }}. Décompresser puis lancer MeteoEau.exe." `
+            --prerelease --target ${{ github.sha }}

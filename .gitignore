@@ -1,0 +1,7 @@
+build/
+out/
+dist/
+.vs/
+*.user
+meteo_eau.ini
+meteo_eau_imgui.ini
