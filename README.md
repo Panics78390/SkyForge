@@ -1,11 +1,11 @@
-# Météo & Eau
+# SkyForge
 
-Démonstrateur temps réel **DirectX 12 / HLSL / C++20** d'un module météo et eau pour moteur de jeu : océan FFT en cascades, nuages volumétriques, vent 3D, pluie GPU et surfaces mouillées. **Tout est réglable en direct** depuis un panneau, avec un profileur GPU par passe et un budget cible de 4 ms pour le module.
+SkyForge est un démonstrateur temps réel **DirectX 12 / HLSL / C++20** d'un module météo et eau pour moteur de jeu : océan FFT en cascades, nuages volumétriques, vent 3D, pluie GPU et surfaces mouillées. **Tout est réglable en direct** depuis un panneau, avec un profileur GPU par passe et un budget cible de 4 ms pour le module.
 
 ## Télécharger et lancer
 
-1. Ouvrir l'onglet **Releases** du dépôt, version **« Dernière version »**, et télécharger `MeteoEau-windows-x64.zip` (compilé automatiquement par GitHub à chaque modification).
-2. Décompresser, puis lancer `MeteoEau.exe` (le dossier `shaders` doit rester à côté).
+1. Ouvrir l'onglet **Releases** du dépôt, version **« Dernière version »**, et télécharger `SkyForge-windows-x64.zip` (compilé automatiquement par GitHub à chaque modification).
+2. Décompresser, puis lancer `SkyForge.exe` (le dossier `shaders` doit rester à côté).
 
 Configuration requise : Windows 10/11 64 bits, carte graphique compatible DirectX 12 (NVIDIA GTX 900+, AMD RX 400+, Intel Arc / Iris Xe).
 
@@ -32,7 +32,7 @@ Configuration requise : Windows 10/11 64 bits, carte graphique compatible Direct
 - **Profileur GPU** : temps de chaque passe comparé à son budget (vert = dans le budget, rouge = dépassement).
 - **Aperçus** des textures internes (humidité, carte météo, occlusion de la pluie, déplacement et pentes de l'océan).
 - **Recharger les shaders** à chaud : modifier un `.hlsl` du dossier `shaders` puis cliquer le bouton.
-- **Enregistrer / Charger** : les réglages vont dans `meteo_eau.ini` (enregistrés aussi à la fermeture).
+- **Enregistrer / Charger** : les réglages vont dans `skyforge.ini` (enregistrés aussi à la fermeture).
 
 ## Ordre des passes dans une frame
 

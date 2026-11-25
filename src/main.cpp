@@ -1,4 +1,4 @@
-// Météo & Eau : démonstrateur DirectX 12 réglable en temps réel.
+// SkyForge : démonstrateur météo et eau DirectX 12 réglable en temps réel.
 //
 // Ordre des passes dans une frame (voir README) :
 //   1. Vent 3D -> 2. Océan FFT -> 3. Pluie (occlusion + simulation) -> 4. Humidité
@@ -107,7 +107,7 @@ bool App::init(HWND hwnd, UINT w, UINT h) {
     m_pipes.init(m_gpu, dir + L"/shaders");
 
     m_timeline.setImmediate(presetState(WeatherPreset::Clear));
-    loadSettings("meteo_eau.ini");
+    loadSettings("skyforge.ini");
     m_quality = QualitySettings::preset(m_qualityLevel);
 
     m_fontSlot = m_gpu.allocPersistent();
@@ -121,7 +121,7 @@ bool App::init(HWND hwnd, UINT w, UINT h) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = "meteo_eau_imgui.ini";
+    io.IniFilename = "skyforge_imgui.ini";
     ImGui::StyleColorsDark();
     const float dpi = ImGui_ImplWin32_GetDpiScaleForHwnd(hwnd);
     ImGui::GetStyle().ScaleAllSizes(dpi);
@@ -419,7 +419,7 @@ void App::buildUi(float dt) {
     (void)dt;
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(420, 760), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Météo & Eau  (F1 : masquer)");
+    ImGui::Begin("SkyForge  (F1 : masquer)");
     ImGui::Text("%.1f FPS  (%.2f ms)  |  GPU mesuré : %.2f ms", 1000.0f / std::max(m_frameMs, 0.01f), m_frameMs, m_prof.totalMs());
     ImGui::TextDisabled("Clic droit + souris : regarder. ZQSD/WASD : bouger, Maj : vite, Espace/C : monter/descendre");
 
@@ -548,11 +548,11 @@ void App::buildUi(float dt) {
             createPipelines();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Enregistrer")) { saveSettings("meteo_eau.ini"); m_status = "Réglages enregistrés dans meteo_eau.ini"; }
+        if (ImGui::Button("Enregistrer")) { saveSettings("skyforge.ini"); m_status = "Réglages enregistrés dans skyforge.ini"; }
         ImGui::SameLine();
         if (ImGui::Button("Charger")) {
             const QualityLevel before = m_qualityLevel;
-            loadSettings("meteo_eau.ini");
+            loadSettings("skyforge.ini");
             if (before != m_qualityLevel) {
                 m_gpu.waitIdle();
                 m_quality = QualitySettings::preset(m_qualityLevel);
@@ -603,7 +603,7 @@ std::map<std::string, float*> App::settingsTable() {
 void App::saveSettings(const char* path) {
     std::ofstream f(path);
     if (!f) return;
-    f << "# Météo & Eau : réglages (clé = valeur)\n";
+    f << "# SkyForge : réglages (clé = valeur)\n";
     f << "qualite = " << int(m_qualityLevel) << "\n";
     for (const auto& [k, v] : settingsTable()) f << k << " = " << *v << "\n";
 }
@@ -628,7 +628,7 @@ void App::loadSettings(const char* path) {
 
 void App::shutdown() {
     m_gpu.waitIdle();
-    saveSettings("meteo_eau.ini");
+    saveSettings("skyforge.ini");
     ImGui_ImplDX12_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
@@ -664,11 +664,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     wc.lpfnWndProc = WndProc;
     wc.hInstance = inst;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.lpszClassName = L"MeteoEauWindow";
+    wc.lpszClassName = L"SkyForgeWindow";
     RegisterClassExW(&wc);
     RECT r{0, 0, 1600, 900};
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-    HWND hwnd = CreateWindowW(wc.lpszClassName, L"Météo & Eau : démonstrateur DirectX 12", WS_OVERLAPPEDWINDOW,
+    HWND hwnd = CreateWindowW(wc.lpszClassName, L"SkyForge : météo et eau en temps réel (DirectX 12)", WS_OVERLAPPEDWINDOW,
                               CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, nullptr, nullptr, inst, nullptr);
     RECT client;
     GetClientRect(hwnd, &client);

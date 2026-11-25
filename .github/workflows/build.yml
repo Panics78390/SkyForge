@@ -28,17 +28,17 @@ jobs:
       - name: Préparation du paquet
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist/MeteoEau | Out-Null
-          Copy-Item build/Release/MeteoEau.exe dist/MeteoEau/
-          Copy-Item -Recurse shaders dist/MeteoEau/shaders
-          Copy-Item README.md dist/MeteoEau/
-          Compress-Archive -Path dist/MeteoEau -DestinationPath dist/MeteoEau-windows-x64.zip -Force
+          New-Item -ItemType Directory -Force dist/SkyForge | Out-Null
+          Copy-Item build/Release/SkyForge.exe dist/SkyForge/
+          Copy-Item -Recurse shaders dist/SkyForge/shaders
+          Copy-Item README.md dist/SkyForge/
+          Compress-Archive -Path dist/SkyForge -DestinationPath dist/SkyForge-windows-x64.zip -Force
 
       - name: Artefact
         uses: actions/upload-artifact@v4
         with:
-          name: MeteoEau-windows-x64
-          path: dist/MeteoEau-windows-x64.zip
+          name: SkyForge-windows-x64
+          path: dist/SkyForge-windows-x64.zip
 
       - name: Publication « derniere-version »
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -47,7 +47,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete derniere-version --yes --cleanup-tag 2>$null
-          gh release create derniere-version dist/MeteoEau-windows-x64.zip `
+          gh release create derniere-version dist/SkyForge-windows-x64.zip `
             --title "Dernière version (compilée automatiquement)" `
-            --notes "Exécutable Windows x64 compilé depuis le commit ${{ github.sha }}. Décompresser puis lancer MeteoEau.exe." `
+            --notes "Exécutable Windows x64 compilé depuis le commit ${{ github.sha }}. Décompresser puis lancer SkyForge.exe." `
             --prerelease --target ${{ github.sha }}

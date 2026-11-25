@@ -6,7 +6,7 @@
 namespace me {
 
 void fatal(const std::wstring& msg) {
-    MessageBoxW(nullptr, msg.c_str(), L"Météo & Eau : erreur", MB_ICONERROR | MB_OK);
+    MessageBoxW(nullptr, msg.c_str(), L"SkyForge : erreur", MB_ICONERROR | MB_OK);
     ExitProcess(1);
 }
 
