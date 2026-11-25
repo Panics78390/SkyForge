@@ -75,7 +75,7 @@ tools/check_shaders.ps1  vérification de tous les shaders avec fxc
 Visual Studio 2022 (charge de travail « Développement Desktop C++ ») et CMake 3.20+ :
 
 ```
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake -S . -B build -A x64
 cmake --build build --config Release
 ```
 
