@@ -79,8 +79,8 @@ struct FrameConstants {
     float cloudBottom, cloudTop, fogDensity, oceanTime;
     float3 camForward;   float puddleAmount;
     float lodNear, lodFar, gerstnerAmp, gerstnerWavelength;
-    float3 islandMin;    float waterLevel;
-    float3 islandMax;    float debugView;
+    float3 terrainMin;    float waterLevel;
+    float3 terrainMax;    float debugView;
     uint32_t windRes[3]; float rainBoxSize;
 };
 static_assert(sizeof(FrameConstants) % 16 == 0, "FrameConstants doit être aligné sur 16 octets");

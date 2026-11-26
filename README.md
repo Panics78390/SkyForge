@@ -1,6 +1,6 @@
 # SkyForge
 
-SkyForge est un démonstrateur temps réel **DirectX 12 / HLSL / C++20** d'un module météo et eau pour moteur de jeu : océan FFT en cascades, nuages volumétriques, vent 3D, pluie GPU et surfaces mouillées. **Tout est réglable en direct** depuis un panneau, avec un profileur GPU par passe et un budget cible de 4 ms pour le module.
+SkyForge est un démonstrateur temps réel **DirectX 12 / HLSL / C++20** d'un module météo et eau pour moteur de jeu : océan FFT en cascades, nuages volumétriques, vent 3D, pluie GPU et surfaces mouillées, sur une plage de sable avec des rochers. **Tout est réglable en direct** depuis un panneau, avec un profileur GPU par passe et un budget cible de 4 ms pour le module.
 
 ## Télécharger et lancer
 
@@ -27,6 +27,7 @@ Configuration requise : Windows 10/11 64 bits, carte graphique compatible Direct
 - **Océan** : vagues pointues, écume, tailles des 3 cascades, rayons de LOD (précision max / Gerstner au-delà).
 - **Nuages** : altitude, tailles des motifs, érosion, extinction, Henyey-Greenstein avant/arrière, effet powder, ambiance, poids de l'historique temporel.
 - **Pluie** : zone, vitesse de chute, longueur des traits, luminosité.
+- **Plage et rochers** : graine de placement, nombre de blocs, arche rocheuse (le sable reste sec dessous quand il pleut), bouton pour y aller.
 - **Surfaces mouillées** : vitesses de mouillage et de séchage (base, vent, soleil), flaques, ondulations, vue de debug.
 - **Qualité** Bas / Moyen / Ultra, activation de chaque sous-système, vitesse du temps, pause, vsync.
 - **Profileur GPU** : temps de chaque passe comparé à son budget (vert = dans le budget, rouge = dépassement).
@@ -39,7 +40,7 @@ Configuration requise : Windows 10/11 64 bits, carte graphique compatible Direct
 ```
 Compute : Vent 3D -> Océan (spectre, IFFT lignes, IFFT colonnes, assemblage) x cascades
           -> Pluie (carte d'occlusion vue du ciel, simulation) -> Humidité du sol
-Rendu   : Scène (PBR mouillé) + Surface d'eau  [HDR, Z inversé, plan lointain infini]
+Rendu   : Plage + rochers (PBR mouillé) + Surface d'eau (eau peu profonde, écume de rivage)  [HDR, Z inversé, plan lointain infini]
           -> Nuages (ray marching basse résolution -> reprojection temporelle)
           -> Composition ciel + nuages -> Gouttes (profondeur en lecture seule)
           -> Tonemapping ACES -> Interface
@@ -63,7 +64,8 @@ src/Pipelines.*   compilation HLSL à l'exécution, PSO, profileur GPU (timestam
 src/Weather.*     état météo, préréglages, transitions, réglages qualité, constantes partagées
 src/Ocean.*       spectre JONSWAP, IFFT en cascades, LOD FFT -> Gerstner
 src/Clouds.*      bruit Perlin-Worley 3D, ray marching, reprojection, composition
-src/Atmos.*       vent 3D, pluie GPU, humidité, scène de démonstration
+src/Atmos.*       vent 3D, pluie GPU, humidité, plage et rochers
+src/Terrain.h     hauteur du terrain côté CPU (copie exacte de shaders/Scene.hlsli)
 src/main.cpp      fenêtre, caméra, boucle de frame, panneau de réglages
 shaders/          tous les shaders HLSL commentés (maths en tête de fichier)
 docs/ARCHITECTURE.md  architecture cible complète du module

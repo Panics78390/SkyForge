@@ -5,7 +5,10 @@
 //  * cascade fine (déplacement) à pleine force jusqu'à gLodNear (50 m), fondu jusqu'à 3x ;
 //  * cascades FFT en fondu vers un modèle analytique de Gerstner entre 0,7 et 1 x gLodFar (500 m) ;
 //  * au-delà de gLodFar : Gerstner seul (4 ondes), calé sur le pic du spectre JONSWAP.
+//  * près de la plage : amplitude réduite avec la profondeur (le terrain est analytique),
+//    eau turquoise qui laisse voir le sable, écume de rivage.
 #include "Common.hlsli"
+#include "Scene.hlsli"
 
 cbuffer OceanDrawCB : register(b1)
 {
@@ -98,6 +101,9 @@ VSOut VSMain(uint vid : SV_VertexID)
     float dist = length(xz - gCamPos.xz);
     float foam;
     float3 d = SampleDisplacement(xz, dist, foam);
+    // Eau peu profonde : les vagues s'aplatissent à l'approche du rivage.
+    float depth = gWaterLevel - TerrainHeight(xz);
+    d *= lerp(0.12, 1.0, saturate(depth / 6.0));
     float3 world = float3(xz.x, gWaterLevel, xz.y) + d;
 
     VSOut o;
@@ -158,7 +164,18 @@ float4 PSMain(VSOut i) : SV_Target
     float back = pow(saturate(dot(V, -L) * 0.5 + 0.5), 3.0);
     float3 water = deep * (AmbientLight(N) + sun * 0.15) + sssCol * sun * back * crest * 0.06;
 
-    float3 col = lerp(water, refl, F) + specCol;
+    // Eau peu profonde : on voit le sable à travers une couche absorbante (rouge absorbé d'abord).
+    float waterDepth = max(i.world.y - TerrainHeight(i.world.xz), 0.0);
+    float3 sandLit = float3(0.70, 0.62, 0.45) * (sun * saturate(gSunDir.y) * 0.8 + AmbientLight(float3(0, 1, 0)));
+    float3 bottom = sandLit * exp(-waterDepth * float3(0.6, 0.14, 0.1));
+    float3 under = lerp(water, bottom, exp(-waterDepth * 0.28));
+
+    float3 col = lerp(under, refl, F) + specCol;
+
+    // Écume de rivage : bande qui respire avec le ressac.
+    float surf = 1.0 - smoothstep(0.0, 1.3, waterDepth);
+    float swash = 0.55 + 0.45 * sin(gOceanTime * 0.9 + TFbm(i.world.xz * 0.15) * 9.0);
+    i.foam = max(i.foam, surf * swash * smoothstep(0.35, 0.6, TFbm(i.world.xz * 0.9 + gOceanTime * 0.2)) );
 
     // Écume (crêtes qui se replient + vent fort).
     float foam = saturate(i.foam * gFoamIntensity);

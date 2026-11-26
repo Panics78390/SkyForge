@@ -10,6 +10,7 @@
 #include "Ocean.h"
 #include "Clouds.h"
 #include "Atmos.h"
+#include "Terrain.h"
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
@@ -27,8 +28,8 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 namespace me {
 
 struct Camera {
-    float3 pos{-30.0f, 7.0f, -75.0f};
-    float yaw = 0.35f, pitch = -0.02f;
+    float3 pos{-45.0f, 4.0f, -45.0f};
+    float yaw = 0.3f, pitch = -0.05f;
     float fovDeg = 60.0f;
     float speed = 15.0f;
     float3 forward() const {
@@ -91,6 +92,7 @@ private:
     UINT m_fontSlot = 0;
     UINT m_previewSlots[5] = {};
     std::string m_status;
+    float m_rockSeedF = 7, m_scatteredF = 45; // copies flottantes pour le fichier de réglages
 };
 
 // ---------------------------------------------------------------------------
@@ -211,7 +213,8 @@ void App::updateCamera(float dt) {
     if (down('C') || down(VK_CONTROL)) move = move - float3{0, 1, 0};
     const float boost = down(VK_SHIFT) ? 5.0f : 1.0f;
     m_cam.pos += move * (m_cam.speed * boost * dt);
-    m_cam.pos.y = std::max(m_cam.pos.y, 0.8f);
+    // On reste au-dessus du sable et de la mer.
+    m_cam.pos.y = std::max(m_cam.pos.y, std::max(terrain::height(m_cam.pos.x, m_cam.pos.z), 0.0f) + 0.8f);
 }
 
 void App::frame() {
@@ -290,9 +293,9 @@ void App::frame() {
     fc.lodFar = m_ocean.params.lodFar;
     fc.gerstnerAmp = m_ocean.gerstnerAmplitude();
     fc.gerstnerWavelength = m_ocean.gerstnerWavelength();
-    fc.islandMin = m_scene.islandMin;
+    fc.terrainMin = m_scene.terrainMin;
     fc.waterLevel = 0.0f;
-    fc.islandMax = m_scene.islandMax;
+    fc.terrainMax = m_scene.terrainMax;
     for (int i = 0; i < 3; ++i) fc.windRes[i] = m_wind.res()[i];
     fc.rainBoxSize = m_rain.params.boxHalf;
     m_gpu.setFrameConstants(&fc, sizeof(fc));
@@ -497,6 +500,19 @@ void App::buildUi(float dt) {
         ImGui::SliderFloat("Longueur des traits", &r.streak, 0.002f, 0.06f, "%.3f");
         ImGui::SliderFloat("Luminosité", &r.brightness, 0.0f, 3.0f);
     }
+    if (ImGui::CollapsingHeader("Plage et rochers")) {
+        bool regen = ImGui::SliderInt("Graine des rochers", &m_scene.rockSeed, 1, 999);
+        regen |= ImGui::SliderInt("Blocs épars", &m_scene.scatteredRocks, 0, 100);
+        regen |= ImGui::Checkbox("Arche rocheuse (abri contre la pluie)", &m_scene.showArch);
+        if (regen) m_scene.generateRocks();
+        ImGui::Text("%u rochers", m_scene.rockCountGpu());
+        if (ImGui::Button("Aller à l'arche")) {
+            const float z = terrain::shoreLine(-25.0f) + 32.0f;
+            m_cam.pos = {-25.0f, terrain::height(-25.0f, z - 22.0f) + 2.5f, z - 22.0f};
+            m_cam.yaw = 0.0f;
+            m_cam.pitch = 0.05f;
+        }
+    }
     if (ImGui::CollapsingHeader("Surfaces mouillées")) {
         auto& p = m_wet.params;
         ImGui::SliderFloat("Humidité globale", &m_wet.globalWetness, 0.0f, 1.0f);
@@ -597,10 +613,13 @@ std::map<std::string, float*> App::settingsTable() {
         {"rendu.exposition", &m_exposure}, {"rendu.fov", &m_cam.fovDeg}, {"camera.vitesse", &m_cam.speed},
         {"camera.x", &m_cam.pos.x}, {"camera.y", &m_cam.pos.y}, {"camera.z", &m_cam.pos.z},
         {"camera.yaw", &m_cam.yaw}, {"camera.pitch", &m_cam.pitch},
+        {"plage.graine", &m_rockSeedF}, {"plage.blocs", &m_scatteredF},
     };
 }
 
 void App::saveSettings(const char* path) {
+    m_rockSeedF = float(m_scene.rockSeed);
+    m_scatteredF = float(m_scene.scatteredRocks);
     std::ofstream f(path);
     if (!f) return;
     f << "# SkyForge : réglages (clé = valeur)\n";
@@ -624,6 +643,9 @@ void App::loadSettings(const char* path) {
         else if (auto it = table.find(key); it != table.end()) *it->second = value;
     }
     m_timeline.setImmediate(m_timeline.current());
+    m_scene.rockSeed = int(m_rockSeedF);
+    m_scene.scatteredRocks = int(m_scatteredF);
+    m_scene.generateRocks();
 }
 
 void App::shutdown() {

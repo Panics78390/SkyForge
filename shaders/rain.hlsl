@@ -1,6 +1,6 @@
 // Pluie en particules GPU.
 //  * Occlusion : carte de hauteur vue du ciel autour de la caméra (ici calculée depuis les
-//    boîtes de la scène ; dans un moteur complet, c'est une passe de profondeur orthographique).
+//    terrain et les rochers ; dans un moteur complet, c'est une passe de profondeur orthographique).
 //  * Simulation : chaque goutte tend vers (vent local + vitesse terminale) avec une constante
 //    de temps courte (traînée), boîte toroïdale autour de la caméra pour garder la densité
 //    constante, mort et réapparition en haut quand elle touche une surface.
@@ -16,7 +16,7 @@ cbuffer RainCB : register(b1)
     float2 gOccOrigin;     // coin de la carte d'occlusion (m)
     float  gOccTexel;      // taille d'un texel (m)
     uint   gOccSize;
-    uint   gBoxCount;
+    uint   gRockCount;
     float  gTerminalSpeed; // vitesse de chute (m/s), ~9 m/s pour une goutte de 2 mm
     float  gStreak;
     float  gBrightness;
@@ -24,7 +24,7 @@ cbuffer RainCB : register(b1)
 
 struct Drop { float3 pos; float seed; float3 vel; float alive; };
 
-StructuredBuffer<Box>       gBoxes : register(t0);
+StructuredBuffer<Rock>      gRocks : register(t0);
 Texture3D<float4>           gWind  : register(t1);
 Texture2D<float>            gOcc   : register(t2);
 RWTexture2D<float>          outOcc : register(u0);
@@ -35,7 +35,7 @@ void Occlusion(uint3 id : SV_DispatchThreadID)
 {
     if (any(id.xy >= gOccSize)) return;
     float2 xz = gOccOrigin + (float2(id.xy) + 0.5) * gOccTexel;
-    outOcc[id.xy] = OcclusionHeight(gBoxes, gBoxCount, xz, gWaterLevel);
+    outOcc[id.xy] = OcclusionHeight(gRocks, gRockCount, xz);
 }
 
 float OccAt(float2 xz)

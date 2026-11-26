@@ -1,55 +1,91 @@
 #include "Atmos.h"
+#include "Terrain.h"
 #include <cmath>
 
 namespace me {
 
 // ---------------------------------------------------------------------------
-// Scène
-struct SceneCB { uint32_t boxCount; float puddleScale, rippleAmount, showWet; };
+// Scène : plage + rochers
+struct SceneCB {
+    uint32_t rockCount; float puddleScale, rippleAmount, showWet;
+    uint32_t terrainQuads; float pad[3];
+};
+static_assert(sizeof(SceneCB) == 32, "SceneCB");
 
 void DemoScene::create(Gpu& gpu) {
-    boxes.clear();
-    auto add = [&](float3 a, float3 b, uint32_t m) { boxes.push_back({a, m, b, 0}); };
-    const float g = islandMax.y;
-    add(islandMin, islandMax, 0);                                     // l'île (pavés)
-    add({-45, g, 15}, {-22, 9, 35}, 4);                               // maison en briques
-    add({-46, 9, 14}, {-21, 9.6f, 36}, 1);                            // dalle de toit
-    add({25, g, 20}, {37, 24, 32}, 1);                                // tour en béton
-    // Abri : toit de tôle sur 4 poteaux (le sol dessous doit rester sec).
-    add({-8, 4.0f, -18}, {14, 4.35f, -4}, 2);
-    add({-7.5f, g, -17.5f}, {-7.1f, 4.0f, -17.1f}, 1);
-    add({13.1f, g, -17.5f}, {13.5f, 4.0f, -17.1f}, 1);
-    add({-7.5f, g, -4.9f}, {-7.1f, 4.0f, -4.5f}, 1);
-    add({13.1f, g, -4.9f}, {13.5f, 4.0f, -4.5f}, 1);
-    add({-70, g, -45}, {-25, 1.4f, -44.2f}, 4);                       // muret
-    add({105, -3, -22}, {175, 0.95f, -15}, 3);                        // ponton qui avance dans la mer
-    add({40, g, -30}, {41.5f, g + 1.5f, -28.5f}, 3);                  // caisses
-    add({42, g, -30}, {43.2f, g + 1.2f, -28.8f}, 3);
-    add({40.4f, g + 1.5f, -29.8f}, {41.4f, g + 2.5f, -28.8f}, 3);
-    boxBuffer = gpu.createStructured(sizeof(SceneBox), uint32_t(boxes.size()), false, L"Scene.Boxes");
-    m_uploaded = false;
+    rockBuffer = gpu.createStructured(sizeof(SceneRock), kMaxRocks, false, L"Scene.Rocks");
+    generateRocks();
+}
+
+void DemoScene::generateRocks() {
+    rocks.clear();
+    uint32_t state = uint32_t(rockSeed) * 747796405u + 2891336453u;
+    auto rnd = [&state]() { state = terrain::hash(state + 0x9E3779B9u); return float(state & 0xFFFFFF) / 16777216.0f; };
+    auto place = [&](float x, float z, float3 radii, float bury, uint32_t seed) {
+        if (rocks.size() >= kMaxRocks) return;
+        const float y = terrain::height(x, z) + radii.y * bury;
+        rocks.push_back({{x, y, z}, rnd() * 2.0f * kPi, radii, seed});
+    };
+    // 1. Éboulis le long du rivage (en partie dans l'eau : les vagues les contournent).
+    for (int i = 0; i < 22; ++i) {
+        const float x = -200.0f + rnd() * 400.0f;
+        const float z = terrain::shoreLine(x) + (rnd() - 0.6f) * 30.0f;
+        const float r = 0.6f + rnd() * rnd() * 3.0f;
+        place(x, z, {r * (0.9f + rnd() * 0.6f), r * (0.6f + rnd() * 0.4f), r * (0.9f + rnd() * 0.6f)}, 0.1f, i);
+    }
+    // 2. Pointe rocheuse à l'est : gros blocs qui avancent dans la mer.
+    for (int i = 0; i < 14; ++i) {
+        const float x = 120.0f + rnd() * 55.0f;
+        const float z = terrain::shoreLine(x) - 35.0f + i * 5.0f + (rnd() - 0.5f) * 10.0f;
+        const float r = 3.0f + rnd() * 6.0f;
+        place(x, z, {r * (0.8f + rnd() * 0.5f), r * (0.7f + rnd() * 0.5f), r * (0.8f + rnd() * 0.5f)}, 0.05f, 100 + i);
+    }
+    // 3. Arche : deux piliers et une dalle en surplomb. Le sable reste sec dessous quand il pleut.
+    if (showArch) {
+        const float ax = -25.0f, az = terrain::shoreLine(-25.0f) + 32.0f;
+        const float g = terrain::height(ax, az);
+        rocks.push_back({{ax - 8.5f, g + 2.2f, az}, 0.3f, {2.6f, 4.2f, 2.4f}, 200});
+        rocks.push_back({{ax + 8.5f, g + 2.2f, az}, 1.1f, {2.4f, 4.0f, 2.7f}, 201});
+        rocks.push_back({{ax, g + 6.4f, az}, 0.05f, {12.5f, 1.4f, 4.6f}, 202});
+    }
+    // 4. Blocs épars sur la plage et dans les dunes.
+    for (int i = 0; i < scatteredRocks; ++i) {
+        const float x = -230.0f + rnd() * 460.0f;
+        const float z = terrain::shoreLine(x) + 5.0f + rnd() * 140.0f;
+        const float r = 0.3f + rnd() * rnd() * 2.2f;
+        place(x, z, {r * (0.9f + rnd() * 0.5f), r * (0.5f + rnd() * 0.4f), r * (0.9f + rnd() * 0.5f)}, 0.15f, 300 + i);
+    }
+    dirty = true;
 }
 
 void DemoScene::createPipelines(Pipelines& p) {
     GraphicsDesc g;
     g.file = "scene_draw.hlsl";
     g.depth = DepthMode::WriteGreater;
-    m_draw = p.graphics(g);
+    g.vsEntry = "VSTerrain";
+    m_terrain = p.graphics(g);
+    g.vsEntry = "VSRock";
+    m_rock = p.graphics(g);
 }
 
 void DemoScene::upload(Gpu& gpu) {
-    if (m_uploaded) return;
-    gpu.uploadBuffer(boxBuffer, boxes.data(), boxes.size() * sizeof(SceneBox));
-    gpu.transition(boxBuffer, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    m_uploaded = true;
+    if (!dirty) return;
+    if (!rocks.empty()) gpu.uploadBuffer(rockBuffer, rocks.data(), rocks.size() * sizeof(SceneRock));
+    gpu.transition(rockBuffer, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    dirty = false;
 }
 
 void DemoScene::draw(Gpu& gpu, const Texture& wetMap, const Texture& weatherMap) {
-    if (!m_draw) return;
-    SceneCB cb{uint32_t(boxes.size()), puddleScale, rippleAmount, showWetnessDebug ? 1.0f : 0.0f};
-    gpu.bindGraphics(m_draw.Get(), &cb, sizeof(cb), {boxBuffer, wetMap, weatherMap});
+    SceneCB cb{rockCountGpu(), puddleScale, rippleAmount, showWetnessDebug ? 1.0f : 0.0f, terrainQuads, {}};
     gpu.cmd()->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    gpu.cmd()->DrawInstanced(36, UINT(boxes.size()), 0, 0);
+    if (m_terrain) {
+        gpu.bindGraphics(m_terrain.Get(), &cb, sizeof(cb), {rockBuffer, wetMap, weatherMap});
+        gpu.cmd()->DrawInstanced(terrainQuads * terrainQuads * 6, 1, 0, 0);
+    }
+    if (m_rock && !rocks.empty()) {
+        gpu.bindGraphics(m_rock.Get(), &cb, sizeof(cb), {rockBuffer, wetMap, weatherMap});
+        gpu.cmd()->DrawInstanced(14 * 20 * 6, UINT(rocks.size()), 0, 0); // ROCK_STACKS x ROCK_SLICES
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -99,11 +135,11 @@ void RainSystem::simulate(Gpu& gpu, GpuProfiler& prof, const DemoScene& scene, c
     m_occOrigin[0] = std::floor((cam.x - half) / m_occTexel) * m_occTexel;
     m_occOrigin[1] = std::floor((cam.z - half) / m_occTexel) * m_occTexel;
     RainCB cb{m_max, m_active, params.boxHalf, params.boxHeight, m_occOrigin[0], m_occOrigin[1], m_occTexel, kOccSize,
-              uint32_t(scene.boxes.size()), params.terminalSpeed, params.streak, params.brightness};
+              scene.rockCountGpu(), params.terminalSpeed, params.streak, params.brightness};
     // La carte d'occlusion : en production, une passe de profondeur orthographique vue du ciel,
     // mise à jour 1 frame sur 4 ou quand la caméra a bougé d'une demi-carte.
-    gpu.dispatch(m_occ.Get(), &cb, sizeof(cb), {scene.boxBuffer}, {occlusion}, divUp(kOccSize, 8), divUp(kOccSize, 8), 1);
-    gpu.dispatch(m_sim.Get(), &cb, sizeof(cb), {scene.boxBuffer, wind.volume, occlusion}, {View{}, m_drops},
+    gpu.dispatch(m_occ.Get(), &cb, sizeof(cb), {scene.rockBuffer}, {occlusion}, divUp(kOccSize, 8), divUp(kOccSize, 8), 1);
+    gpu.dispatch(m_sim.Get(), &cb, sizeof(cb), {scene.rockBuffer, wind.volume, occlusion}, {View{}, m_drops},
                  divUp(m_max, 256), 1, 1);
     m_lastCB = cb;
 }
@@ -118,7 +154,7 @@ void RainSystem::draw(Gpu& gpu) {
 // ---------------------------------------------------------------------------
 // Humidité
 struct WetCB {
-    uint32_t mapSize, boxCount; float wetRate, puddleRate;
+    uint32_t mapSize, rockCount; float wetRate, puddleRate;
     float dryBase, dryWind, drySun, puddleDry;
 };
 static_assert(sizeof(WetCB) == 32, "WetCB");
@@ -132,9 +168,9 @@ void WetnessSystem::createPipelines(Pipelines& p) { m_pso = p.compute("wetness.h
 
 void WetnessSystem::update(Gpu& gpu, GpuProfiler& prof, const DemoScene& scene, const Texture& weatherMap) {
     ScopedPass sp(prof, "Humidite");
-    WetCB cb{m_size, uint32_t(scene.boxes.size()), params.wetRate, params.puddleRate,
+    WetCB cb{m_size, scene.rockCountGpu(), params.wetRate, params.puddleRate,
              params.dryBase, params.dryWind, params.drySun, params.puddleDry};
-    gpu.dispatch(m_pso.Get(), &cb, sizeof(cb), {scene.boxBuffer, weatherMap}, {map}, divUp(m_size, 8), divUp(m_size, 8), 1);
+    gpu.dispatch(m_pso.Get(), &cb, sizeof(cb), {scene.rockBuffer, weatherMap}, {map}, divUp(m_size, 8), divUp(m_size, 8), 1);
 }
 
 void WetnessSystem::updateGlobal(const WeatherState& w, float dt) {

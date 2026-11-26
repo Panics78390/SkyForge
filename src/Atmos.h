@@ -6,29 +6,36 @@
 
 namespace me {
 
-// Boîte de la scène (miroir de Box dans shaders/Scene.hlsli).
-struct SceneBox {
-    float3 mn; uint32_t material;
-    float3 mx; float pad = 0;
+// Rocher (miroir de Rock dans shaders/Scene.hlsli) : ellipsoïde déformé par du bruit.
+struct SceneRock {
+    float3 center; float yaw;
+    float3 radii;  uint32_t seed;
 };
-static_assert(sizeof(SceneBox) == 32, "SceneBox");
+static_assert(sizeof(SceneRock) == 32, "SceneRock");
 
+// Plage procédurale + rochers.
 class DemoScene {
 public:
+    static constexpr uint32_t kMaxRocks = 160;
     void create(Gpu& gpu);
     void createPipelines(Pipelines& p);
-    void upload(Gpu& gpu);            // une fois (et après rechargement)
+    void generateRocks();             // placement déterministe selon rockSeed / rockCount
+    void upload(Gpu& gpu);            // envoie les rochers au GPU s'ils ont changé
     void draw(Gpu& gpu, const Texture& wetMap, const Texture& weatherMap);
+    uint32_t rockCountGpu() const { return uint32_t(rocks.size()); }
 
-    float3 islandMin{-120.0f, -6.0f, -90.0f};
-    float3 islandMax{120.0f, 0.6f, 90.0f};
-    std::vector<SceneBox> boxes;
-    Buffer boxBuffer;
+    float3 terrainMin{-320.0f, -14.0f, -220.0f};
+    float3 terrainMax{320.0f, 12.0f, 360.0f};
+    std::vector<SceneRock> rocks;
+    Buffer rockBuffer;
+    int rockSeed = 7, scatteredRocks = 45;
+    bool showArch = true;
+    uint32_t terrainQuads = 640;
     float puddleScale = 0.12f, rippleAmount = 1.0f;
     bool showWetnessDebug = false;
+    bool dirty = true;
 private:
-    ComPtr<ID3D12PipelineState> m_draw;
-    bool m_uploaded = false;
+    ComPtr<ID3D12PipelineState> m_terrain, m_rock;
 };
 
 struct WindParams { float cellSize = 4.0f; };
@@ -52,7 +59,7 @@ private:
 struct RainCB {
     uint32_t maxParticles, active; float boxHalf, boxHeight;
     float occOriginX, occOriginZ, occTexel; uint32_t occSize;
-    uint32_t boxCount; float terminalSpeed, streak, brightness;
+    uint32_t rockCount; float terminalSpeed, streak, brightness;
 };
 static_assert(sizeof(RainCB) == 48, "RainCB");
 

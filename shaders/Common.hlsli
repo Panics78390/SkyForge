@@ -20,8 +20,8 @@ cbuffer FrameCB : register(b0)
     float  gCloudBottom;   float gCloudTop;     float gFogDensity; float gOceanTime;
     float3 gCamForward;    float gPuddleAmount;
     float  gLodNear;       float gLodFar;       float gGerstnerAmp; float gGerstnerWavelength;
-    float3 gIslandMin;     float gWaterLevel;
-    float3 gIslandMax;     float gDebugView;
+    float3 gTerrainMin;     float gWaterLevel;
+    float3 gTerrainMax;     float gDebugView;
     uint3  gWindRes;       float gRainBoxSize;
 };
 

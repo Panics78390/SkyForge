@@ -11,7 +11,7 @@ cbuffer RainCB : register(b1)
     float2 gOccOrigin;
     float  gOccTexel;
     uint   gOccSize;
-    uint   gBoxCount;
+    uint   gRockCount;
     float  gTerminalSpeed;
     float  gStreak;        // durée d'exposition simulée (s)
     float  gBrightness;
