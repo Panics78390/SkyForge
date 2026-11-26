@@ -8,9 +8,14 @@
 //    HG(c, g) = (1 - g^2) / (4 pi (1 + g^2 - 2 g c)^{3/2}).
 //  * Effet « powder » (Schneider 2015) : 1 - e^{-2d} assombrit les bords fins tournés vers
 //    le soleil, ce qui donne l'aspect « chou-fleur » des cumulus.
-//  * Pas adaptatif : grands pas avec la densité grossière tant qu'on est dans le vide,
-//    retour d'un pas et pas fins dès qu'on touche un nuage, retour aux grands pas après
-//    plusieurs échantillons vides.
+//  * Pas adaptatif : la longueur du pas grandit avec la distance (fin près de la caméra pour
+//    pouvoir voler dans les nuages, grossier au loin). Dans le vide, on avance par grands pas
+//    avec la densité grossière ; dès qu'on touche un nuage, on recule d'un pas et on affine.
+//  * Diffusion multiple (Wrenninge 2013, repris par Hillaire) : somme de 3 « octaves »
+//    a^n * L_sun * phase(c^n g) * exp(-b^n tau), qui rend les nuages épais blancs et lumineux
+//    au lieu de gris.
+//  * Vu de près : une octave de détail supplémentaire et une distorsion « tourbillonnante »
+//    donnent les volutes qu'on traverse en volant.
 #include "CloudCommon.hlsli"
 
 Texture2D<float>   gDepth   : register(t0);
@@ -35,12 +40,13 @@ float HeightGradient(float h, float type)
     return bottom * upper;
 }
 
-float Density(float3 p, bool cheap)
+float Density(float3 p, bool cheap, float nearDetail)
 {
     float h = (p.y - gCloudBottom) / (gCloudTop - gCloudBottom);
     if (h <= 0.0 || h >= 1.0) return 0.0;
     float4 wm = gWeather.SampleLevel(gLinearWrap, (p.xz + gCloudOffset) / 30000.0, 0);
-    float coverage = saturate(gCloudCoverage + (wm.r - 0.5) * 0.9);
+    // La pluie épaissit et abaisse les nuages.
+    float coverage = saturate(gCloudCoverage + (wm.r - 0.5) * 0.9 + gPrecip * 0.15);
     float type = saturate(gCloudType + (wm.g - 0.5) * 0.4);
 
     float3 sp = (p + float3(gCloudOffset.x, 0, gCloudOffset.y)) * gShapeScale;
@@ -53,9 +59,17 @@ float Density(float3 p, bool cheap)
 
     // Érosion par le bruit de détail (plus « vaporeux » en bas, plus « bouillonnant » en haut),
     // légèrement entraîné par le vent et la turbulence.
-    float3 dp = (p + float3(gCloudOffset.x, -gTime * 2.0, gCloudOffset.y) * 1.3) * gDetailScale;
+    // Distorsion par les canaux de la forme : les détails « tourbillonnent » au lieu d'être alignés.
+    float3 swirl = (s.gba - 0.5) * 0.35;
+    float3 dp = (p + float3(gCloudOffset.x, -gTime * 2.0, gCloudOffset.y) * 1.3) * gDetailScale + swirl;
     float4 d = gDetail.SampleLevel(gLinearWrap, dp, 0);
     float dfbm = d.r * 0.625 + d.g * 0.25 + d.b * 0.125;
+    if (nearDetail > 0.0)
+    {
+        // Octave très fine, seulement près de la caméra (volutes visibles en vol).
+        float4 d2 = gDetail.SampleLevel(gLinearWrap, dp * 4.7 + swirl * 2.0, 0);
+        dfbm = lerp(dfbm, dfbm * 0.75 + d2.r * 0.25, nearDetail);
+    }
     float mod = lerp(dfbm, 1.0 - dfbm, saturate(h * 6.0));
     return saturate(Remap(base, mod * gDetailStrength, 1.0, 0.0, 1.0));
 }
@@ -68,7 +82,7 @@ float LightOpticalDepth(float3 p)
     [loop] for (uint i = 0; i < gLightSteps; ++i)
     {
         float3 q = p + gSunDir * t;
-        od += Density(q, i + 1 == gLightSteps) * stepLen;
+        od += Density(q, i + 1 == gLightSteps, 0.0) * stepLen;
         t += stepLen;
         stepLen *= 1.6; // cône qui s'élargit
     }
@@ -108,20 +122,18 @@ void main(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    // Pas de base, borné pour que les rayons rasants ne s'étirent pas à l'infini.
+    // Pas qui grandit avec la distance : fin autour de la caméra, grossier au loin.
     float range = tExit - tEnter;
-    float baseStep = clamp(range / float(gSteps), 30.0, 600.0);
-    float jitter = HashF(Hash3(uint3(id.xy, gFrameIndex)));
-    float t = tEnter + jitter * baseStep;
+    float farStep = clamp(range / float(gSteps), 40.0, 600.0);
+    float jitter = frac(52.9829189 * frac(dot(float2(id.xy), float2(0.06711056, 0.00583715))) + float(gFrameIndex % 64) * 0.618034);
+    float t = tEnter + jitter * min(gNearStep + tEnter * 0.02, farStep);
 
     float cosTheta = dot(dir, gSunDir);
-    // Phase normalisée (isotrope = 1) puis atténuée : rendu artistique, nuages plus lumineux que le ciel.
-    float phase = lerp(HG(cosTheta, gG1), HG(cosTheta, gG2), 0.3) * 4.0 * PI * 0.5;
     float powderAmount = gPowder * saturate(0.6 - 0.6 * cosTheta);
     float3 sunL = SunRadiance();
     float3 skyUp = SkyColor(float3(0, 1, 0));
     float3 ambTop = lerp(skyUp, dot(skyUp, float3(0.3, 0.59, 0.11)).xxx, 0.5) * gAmbient;
-    float3 ambBottom = ambTop * float3(0.45, 0.48, 0.55);
+    float3 ambBottom = ambTop * lerp(float3(0.45, 0.48, 0.55), float3(0.22, 0.23, 0.26), gPrecip); // bases sombres sous la pluie
 
     float3 scatter = 0;
     float T = 1.0;
@@ -129,27 +141,36 @@ void main(uint3 id : SV_DispatchThreadID)
     bool fine = false;
     uint empty = 0;
 
-    [loop] for (uint i = 0; i < gSteps * 2 && t < tExit; ++i)
+    [loop] for (uint i = 0; i < gSteps * 3 && t < tExit; ++i)
     {
+        float step = min(gNearStep + t * 0.02, farStep);
         float3 p = gCamPos + dir * t;
         if (!fine)
         {
-            if (Density(p, true) > 0.0) { fine = true; empty = 0; t = max(t - baseStep, tEnter); }
-            else t += baseStep * 2.0;
+            if (Density(p, true, 0.0) > 0.0) { fine = true; empty = 0; t = max(t - step, tEnter); }
+            else t += step * 2.0;
             continue;
         }
-        float d = Density(p, false);
+        float nearDetail = 1.0 - smoothstep(150.0, 600.0, t);
+        float d = Density(p, false, nearDetail);
         if (d > 0.002)
         {
             empty = 0;
             float sigma = d * gExtinction * gCloudDensity;
-            float lightOD = LightOpticalDepth(p);
-            // Diffusion multiple approchée : une seconde exponentielle plus douce.
-            float beer = max(exp(-lightOD), exp(-lightOD * 0.25) * 0.7);
-            float powder = lerp(1.0, saturate(2.0 * (1.0 - exp(-2.0 * lightOD))), powderAmount);
+            float tau = LightOpticalDepth(p);
+            float powder = lerp(1.0, saturate(2.0 * (1.0 - exp(-2.0 * tau))), powderAmount);
+            // Diffusion multiple : 3 octaves (a = b = c = 0,5).
+            float3 sunS = 0;
+            float an = 1.0, bn = 1.0, cn = 1.0;
+            [unroll] for (int o = 0; o < 3; ++o)
+            {
+                float ph = lerp(HG(cosTheta, gG1 * cn), HG(cosTheta, gG2 * cn), 0.3) * 4.0 * PI;
+                sunS += an * ph * exp(-tau * bn);
+                an *= 0.5; bn *= 0.5; cn *= 0.5;
+            }
             float h = saturate((p.y - gCloudBottom) / (gCloudTop - gCloudBottom));
-            float3 Ls = sunL * beer * powder * phase + lerp(ambBottom, ambTop, h);
-            float Ti = exp(-sigma * baseStep);
+            float3 Ls = sunL * sunS * powder * 0.55 + lerp(ambBottom, ambTop, h);
+            float Ti = exp(-sigma * step);
             scatter += T * (Ls - Ls * Ti); // = T * (S - S Ti) / sigma avec S = Ls * sigma
             distSum += t * T * (1.0 - Ti);
             distW += T * (1.0 - Ti);
@@ -160,7 +181,7 @@ void main(uint3 id : SV_DispatchThreadID)
         {
             fine = false;
         }
-        t += baseStep;
+        t += step;
     }
 
     // Perspective aérienne : les nuages lointains se fondent dans l'horizon.

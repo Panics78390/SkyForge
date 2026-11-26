@@ -186,6 +186,25 @@ float CloudShadow(Texture2D<float4> weatherMap, float3 p)
     return lerp(1.0, 0.25, saturate(c));
 }
 
+// Ciel + nuages pour les reflets (mer, flaques) : on lit la carte météo là où le rayon
+// réfléchi traverse la couche nuageuse. Approximation bon marché du vrai ray marching.
+float3 CloudySky(Texture2D<float4> weatherMap, float3 R)
+{
+    float3 sky = SkyColor(R);
+    if (R.y < 0.01) return sky;
+    float midH = lerp(gCloudBottom, gCloudTop, 0.3);
+    float t = (midH - gCamPos.y) / R.y;
+    if (t <= 0.0) return sky;
+    float2 q = gCamPos.xz + R.xz * t;
+    float cov = weatherMap.SampleLevel(gLinearWrap, (q + gCloudOffset) / 30000.0, 0).r;
+    float c = saturate((saturate(gCloudCoverage + (cov - 0.5) * 0.9 + gPrecip * 0.15) - 0.35) * 2.2);
+    c *= saturate(gCloudDensity * 1.5) * saturate(1.0 - t / 40000.0);
+    float3 cloudCol = SunRadiance() * 0.3 * (0.6 + 0.4 * saturate(dot(R, gSunDir)))
+                    + SkyColor(float3(0, 1, 0)) * 0.55;
+    cloudCol *= lerp(1.0, 0.45, gPrecip);
+    return lerp(sky, cloudCol, c);
+}
+
 // GGX (spéculaire) pour l'éclairage solaire.
 float D_GGX(float NoH, float a)
 {

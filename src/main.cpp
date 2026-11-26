@@ -92,6 +92,8 @@ private:
     UINT m_fontSlot = 0;
     UINT m_previewSlots[5] = {};
     std::string m_status;
+    float m_cameraSpeed = 0.0f;
+    int m_cloudRes = -1; // -1 = selon la qualité
     float m_rockSeedF = 7, m_scatteredF = 45; // copies flottantes pour le fichier de réglages
 };
 
@@ -235,7 +237,9 @@ void App::frame() {
     ImGui::NewFrame();
     if (ImGui::IsKeyPressed(ImGuiKey_F1)) m_showUi = !m_showUi;
     if (m_showUi) buildUi(realDt);
+    const float3 camBefore = m_cam.pos;
     updateCamera(realDt);
+    m_cameraSpeed = realDt > 0.0f ? length(m_cam.pos - camBefore) / realDt : 0.0f;
 
     // --- Mise à jour CPU -----------------------------------------------------
     m_timeline.update(dt);
@@ -332,7 +336,7 @@ void App::frame() {
     }
 
     // --- Nuages + composition -----------------------------------------------
-    if (m_enableClouds) m_clouds.render(m_gpu, m_prof, m_depth);
+    if (m_enableClouds) m_clouds.render(m_gpu, m_prof, m_depth, m_cameraSpeed);
     else m_clouds.invalidateHistory();
     {
         ScopedPass sp(m_prof, "Composite");
@@ -491,6 +495,24 @@ void App::buildUi(float dt) {
         ImGui::SliderFloat("Lumière ambiante", &c.ambient, 0.0f, 2.0f);
         ImGui::SliderFloat("Poids de l'historique", &c.historyBlend, 0.0f, 0.98f);
         ImGui::SliderFloat("Dérive avec le vent", &c.windInfluence, 0.0f, 5.0f);
+        ImGui::SliderFloat("Pas fin près de la caméra (m)", &c.nearStep, 1.0f, 40.0f, "%.1f");
+        int res = m_cloudRes < 0 ? (m_quality.cloudResScale >= 0.99f ? 2 : m_quality.cloudResScale >= 0.49f ? 1 : 0) : m_cloudRes;
+        if (ImGui::Combo("Résolution des nuages", &res, "1/4 (rapide)\0" "1/2\0" "Pleine (lent)\0")) {
+            m_cloudRes = res;
+            m_gpu.waitIdle();
+            m_quality.cloudResScale = res == 0 ? 0.25f : res == 1 ? 0.5f : 1.0f;
+            m_clouds.create(m_gpu, m_quality, m_gpu.width(), m_gpu.height());
+            writePreviews();
+        }
+        if (ImGui::Button("Monter dans les nuages")) {
+            m_cam.pos.y = c.bottom + (c.top - c.bottom) * 0.25f;
+            m_cam.pitch = 0.0f;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Redescendre")) {
+            m_cam.pos.y = std::max(terrain::height(m_cam.pos.x, m_cam.pos.z), 0.0f) + 4.0f;
+        }
+        ImGui::TextDisabled("Astuce : Maj + vitesse caméra élevée pour traverser vite les nuages.");
     }
     if (ImGui::CollapsingHeader("Pluie")) {
         auto& r = m_rain.params;
@@ -533,6 +555,7 @@ void App::buildUi(float dt) {
             m_gpu.waitIdle();
             m_qualityLevel = QualityLevel(q);
             m_quality = QualitySettings::preset(m_qualityLevel);
+            m_cloudRes = -1;
             createSubsystems();
             createPipelines();
         }
@@ -548,7 +571,7 @@ void App::buildUi(float dt) {
         ImGui::Checkbox("Pause", &m_paused);
         ImGui::SliderFloat("Vitesse du temps", &m_timeScale, 0.0f, 10.0f);
         ImGui::SliderFloat("Champ de vision", &m_cam.fovDeg, 30.0f, 100.0f, "%.0f°");
-        ImGui::SliderFloat("Vitesse caméra", &m_cam.speed, 2.0f, 200.0f, "%.0f");
+        ImGui::SliderFloat("Vitesse caméra", &m_cam.speed, 2.0f, 600.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
     }
     if (ImGui::CollapsingHeader("Profileur GPU", ImGuiTreeNodeFlags_DefaultOpen)) uiProfiler();
     if (ImGui::CollapsingHeader("Aperçu des textures")) {
@@ -603,7 +626,7 @@ std::map<std::string, float*> App::settingsTable() {
         {"nuages.base", &c.bottom}, {"nuages.sommet", &c.top}, {"nuages.taille_forme", &c.shapeSize},
         {"nuages.taille_detail", &c.detailSize}, {"nuages.erosion", &c.detailStrength}, {"nuages.extinction", &c.extinction},
         {"nuages.hg_avant", &c.g1}, {"nuages.hg_arriere", &c.g2}, {"nuages.powder", &c.powder},
-        {"nuages.ambiant", &c.ambient}, {"nuages.historique", &c.historyBlend}, {"nuages.derive_vent", &c.windInfluence},
+        {"nuages.ambiant", &c.ambient}, {"nuages.pas_proche", &c.nearStep}, {"nuages.historique", &c.historyBlend}, {"nuages.derive_vent", &c.windInfluence},
         {"pluie.rayon", &r.boxHalf}, {"pluie.vitesse", &r.terminalSpeed}, {"pluie.traits", &r.streak},
         {"pluie.luminosite", &r.brightness},
         {"humidite.mouillage", &p.wetRate}, {"humidite.flaques", &p.puddleRate}, {"humidite.sechage_base", &p.dryBase},

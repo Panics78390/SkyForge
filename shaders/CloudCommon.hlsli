@@ -18,7 +18,8 @@ cbuffer CloudCB : register(b1)
     float gAmbient;         // intensité de la lumière ambiante
     float gHistoryBlend;    // poids de l'historique (reprojection)
     uint  gHistoryValid;
-    float2 _padCloud;
+    float gNearStep;        // pas minimal près de la caméra (m)
+    float _padCloud;
 };
 
 #endif

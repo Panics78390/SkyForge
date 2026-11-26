@@ -168,7 +168,7 @@ float4 PSMain(VSOut i) : SV_Target
     float3 Rup = normalize(float3(R.x, max(R.y, 0.02), R.z));
     float3 Fenv = s.f0 + (max(1.0 - s.roughness, s.f0) - s.f0) * pow(1.0 - NoV, 5.0);
     float envVis = (1.0 - s.roughness) > 0.3 ? ShadowRay(gRocks, gRockCount, p + N * 0.05, Rup, skip) : 1.0;
-    col += SkyColor(Rup) * Fenv * (1.0 - s.roughness) * lerp(0.3, 1.0, envVis);
+    col += CloudySky(gWeather, Rup) * Fenv * (1.0 - s.roughness) * lerp(0.3, 1.0, envVis);
 
     if (gShowWetnessDebug > 0.5)
         col = lerp(col, float3(wetness, puddle, 0.0) * 2.0, 0.7);

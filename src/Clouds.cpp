@@ -8,7 +8,7 @@ struct CloudCB {
     uint32_t resX, resY, steps, lightSteps;
     float shapeScale, detailScale, detailStrength, extinction;
     float g1, g2, powder, ambient;
-    float historyBlend; uint32_t historyValid; float pad[2];
+    float historyBlend; uint32_t historyValid; float nearStep, pad;
 };
 static_assert(sizeof(CloudCB) == 64, "CloudCB");
 
@@ -47,7 +47,8 @@ void Clouds::bakeNoise(Gpu& gpu) {
     m_baked = true;
 }
 
-void Clouds::render(Gpu& gpu, GpuProfiler& prof, const Texture& depth) {
+void Clouds::render(Gpu& gpu, GpuProfiler& prof, const Texture& depth, float cameraSpeed) {
+    m_cameraSpeed = cameraSpeed;
     CloudCB cb{};
     cb.resX = m_w;
     cb.resY = m_h;
@@ -61,7 +62,9 @@ void Clouds::render(Gpu& gpu, GpuProfiler& prof, const Texture& depth) {
     cb.g2 = params.g2;
     cb.powder = params.powder;
     cb.ambient = params.ambient;
-    cb.historyBlend = params.historyBlend;
+    // Moins d'historique quand la caméra va vite : évite les traînées en vol.
+    cb.historyBlend = params.historyBlend * saturate(1.0f - m_cameraSpeed / 400.0f);
+    cb.nearStep = params.nearStep;
     cb.historyValid = m_historyValid ? 1u : 0u;
     {
         ScopedPass sp(prof, "Nuages march");

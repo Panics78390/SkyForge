@@ -146,11 +146,11 @@ float4 PSMain(VSOut i) : SV_Target
     float shadow = CloudShadow(gWeather, i.world);
     float3 sun = SunRadiance() * shadow;
 
-    // Réflexion : ciel (le rayon réfléchi est replié au-dessus de l'horizon).
+    // Réflexion : ciel et nuages (le rayon réfléchi est replié au-dessus de l'horizon).
     float3 R = reflect(-V, N);
     R.y = abs(R.y);
     float F = 0.02 + 0.98 * pow(1.0 - NoV, 5.0);
-    float3 refl = SkyColor(R);
+    float3 refl = CloudySky(gWeather, R); // ciel + nuages reflétés
 
     // Spéculaire solaire GGX, rugosité qui augmente avec la distance et le vent.
     float rough = lerp(0.06, 0.2, saturate(dist / 3000.0)) + gWindSpeed * 0.003;

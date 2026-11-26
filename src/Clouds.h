@@ -17,6 +17,7 @@ struct CloudParams {
     float ambient = 0.7f;
     float historyBlend = 0.9f;
     float windInfluence = 1.0f;              // vitesse de dérive des nuages / vent au sol
+    float nearStep = 6.0f;                   // pas minimal du ray marching près de la caméra (m)
 };
 
 class Clouds {
@@ -24,7 +25,7 @@ public:
     void create(Gpu& gpu, const QualitySettings& q, UINT screenW, UINT screenH);
     void createPipelines(Pipelines& p);
     void bakeNoise(Gpu& gpu);                          // une fois au démarrage
-    void render(Gpu& gpu, GpuProfiler& prof, const Texture& depth);
+    void render(Gpu& gpu, GpuProfiler& prof, const Texture& depth, float cameraSpeed);
     void composite(Gpu& gpu, const Texture& sceneHdr, const Texture& depth, bool cloudsEnabled);
     void invalidateHistory() { m_historyValid = false; }
 
@@ -40,6 +41,7 @@ private:
     uint32_t m_steps = 64, m_lightSteps = 6;
     UINT m_historyIndex = 0;
     bool m_historyValid = false, m_baked = false;
+    float m_cameraSpeed = 0.0f;
 };
 
 } // namespace me
