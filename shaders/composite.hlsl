@@ -32,6 +32,7 @@ float4 PSMain(VSOut i) : SV_Target
     col = col * c.a + c.rgb;
 
     // Voile de pluie au loin.
-    col = lerp(col, SkyColor(normalize(float3(V.x, 0.05, V.z))) * 0.8, saturate(gPrecip * 0.35 * (1.0 - saturate(V.y * 3.0))));
+    float3 veil = SkyColor(normalize(float3(V.x, 0.05, V.z))) * lerp(0.8, 1.1, SnowFactor()); // neige : voile plus clair
+    col = lerp(col, veil, saturate(gPrecip * lerp(0.35, 0.55, SnowFactor()) * (1.0 - saturate(V.y * 3.0))));
     return float4(col, 1);
 }

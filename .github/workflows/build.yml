@@ -31,6 +31,7 @@ jobs:
           New-Item -ItemType Directory -Force dist/SkyForge | Out-Null
           Copy-Item build/Release/SkyForge.exe dist/SkyForge/
           Copy-Item -Recurse shaders dist/SkyForge/shaders
+          Copy-Item -Recurse sons dist/SkyForge/sons
           Copy-Item README.md dist/SkyForge/
           Compress-Archive -Path dist/SkyForge -DestinationPath dist/SkyForge-windows-x64.zip -Force
 

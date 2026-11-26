@@ -21,7 +21,7 @@ cbuffer FrameCB : register(b0)
     float3 gCamForward;    float gPuddleAmount;
     float  gLodNear;       float gLodFar;       float gGerstnerAmp; float gGerstnerWavelength;
     float3 gTerrainMin;     float gWaterLevel;
-    float3 gTerrainMax;     float gDebugView;
+    float3 gTerrainMax;     float gSnowCover;
     uint3  gWindRes;       float gRainBoxSize;
 };
 
@@ -142,6 +142,9 @@ float3 AmbientLight(float3 n)
     float3 ground = float3(0.06, 0.07, 0.08) * gSunIntensity;
     return lerp(ground, sky, saturate(n.y * 0.5 + 0.5)) * 0.9;
 }
+
+// Part de neige dans les précipitations : 1 sous -1 °C, 0 au-dessus de +1,5 °C (neige fondue entre).
+float SnowFactor() { return saturate((1.5 - gTemperature) / 2.5); }
 
 // Brouillard (densifié par la pluie).
 float FogFactor(float dist)

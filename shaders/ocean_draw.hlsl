@@ -8,7 +8,7 @@
 //  * près de la plage : amplitude réduite avec la profondeur (le terrain est analytique),
 //    eau turquoise qui laisse voir le sable, écume de rivage.
 #include "Common.hlsli"
-#include "Scene.hlsli"
+#include "ShoreWaves.hlsli"
 
 cbuffer OceanDrawCB : register(b1)
 {
@@ -18,7 +18,11 @@ cbuffer OceanDrawCB : register(b1)
     float  gGridLinear;   // part linéaire de la répartition des sommets
     float  gFoamIntensity;
     float  gChoppy;
-    float3 _padDraw;
+    float  gShoreAmp;        // amplitude des vagues de bord au large (m)
+    float  gShoreLength;     // longueur d'onde des vagues de bord (m)
+    float  gShoreRunup;      // hauteur du jet de rive (m)
+    float  gShoreOmega;      // pulsation des vagues de bord (rad/s)
+    float3 _padShore;
 };
 
 Texture2D<float4> gDisp0   : register(t0);
@@ -82,6 +86,8 @@ struct VSOut
     float3 world : WORLD;
     float2 xz    : UNDISPLACED;
     float  foam  : FOAM;
+    float2 shoreSlope : SHORESLOPE;
+    float  shoreFoam  : SHOREFOAM;
 };
 
 VSOut VSMain(uint vid : SV_VertexID)
@@ -104,13 +110,17 @@ VSOut VSMain(uint vid : SV_VertexID)
     // Eau peu profonde : les vagues s'aplatissent à l'approche du rivage.
     float depth = gWaterLevel - TerrainHeight(xz);
     d *= lerp(0.12, 1.0, saturate(depth / 6.0));
-    float3 world = float3(xz.x, gWaterLevel, xz.y) + d;
+    // Vagues de bord qui déferlent + jet de rive.
+    ShoreInfo si = ShoreWaves(xz, depth, gShoreAmp, gShoreLength, gShoreRunup, gShoreOmega);
+    float3 world = float3(xz.x, gWaterLevel, xz.y) + d + si.disp;
 
     VSOut o;
     o.pos = mul(float4(world, 1), gViewProj);
     o.world = world;
     o.xz = xz;
     o.foam = foam;
+    o.shoreSlope = si.slope;
+    o.shoreFoam = si.foam;
     return o;
 }
 
@@ -133,6 +143,7 @@ float4 PSMain(VSOut i) : SV_Target
     float3 gd, gn;
     Gerstner(i.xz, gd, gn);
     float3 N = normalize(lerp(gn, nFFT, max(w.fft, 0.35)));
+    N = normalize(N + float3(-i.shoreSlope.x, 0.0, -i.shoreSlope.y)); // pente des vagues de bord
     // Lissage lointain (la normale moyenne d'un pixel lointain tend vers le haut).
     N = normalize(lerp(N, float3(0, 1, 0), saturate(dist / 12000.0)));
 
@@ -175,7 +186,11 @@ float4 PSMain(VSOut i) : SV_Target
     // Écume de rivage : bande qui respire avec le ressac.
     float surf = 1.0 - smoothstep(0.0, 1.3, waterDepth);
     float swash = 0.55 + 0.45 * sin(gOceanTime * 0.9 + TFbm(i.world.xz * 0.15) * 9.0);
-    i.foam = max(i.foam, surf * swash * smoothstep(0.35, 0.6, TFbm(i.world.xz * 0.9 + gOceanTime * 0.2)) );
+    float lace = FoamLace(i.world.xz, gOceanTime);
+    float edge = surf * swash * lerp(0.5, 1.0, lace);                 // liseré au bord de l'eau
+    float sheet = i.shoreFoam * lerp(0.25, 1.15, lace);               // mousse de déferlement en dentelle
+    float shallowSheet = (1.0 - smoothstep(0.0, 0.6, waterDepth)) * 0.35 * lace; // fine pellicule qui reflue
+    i.foam = max(i.foam, max(edge, max(sheet, shallowSheet)));
 
     // Écume (crêtes qui se replient + vent fort).
     float foam = saturate(i.foam * gFoamIntensity);

@@ -1,6 +1,6 @@
 # SkyForge
 
-SkyForge est un démonstrateur temps réel **DirectX 12 / HLSL / C++20** d'un module météo et eau pour moteur de jeu : océan FFT en cascades, nuages volumétriques, vent 3D, pluie GPU et surfaces mouillées, sur une plage de sable avec des rochers. **Tout est réglable en direct** depuis un panneau, avec un profileur GPU par passe et un budget cible de 4 ms pour le module.
+SkyForge est un démonstrateur temps réel **DirectX 12 / HLSL / C++20** d'un module météo et eau pour moteur de jeu : océan FFT en cascades, nuages volumétriques, vent 3D, pluie GPU et surfaces mouillées, sur une plage de sable avec des rochers, avec la neige et une ambiance sonore. **Tout est réglable en direct** depuis un panneau, avec un profileur GPU par passe et un budget cible de 4 ms pour le module.
 
 ## Télécharger et lancer
 
@@ -21,12 +21,13 @@ Configuration requise : Windows 10/11 64 bits, carte graphique compatible Direct
 
 ## Ce qu'on peut régler
 
-- **Préréglages météo** : Clair, Nuageux, Pluie, Tempête, avec transition douce (durée réglable).
+- **Préréglages météo** : Clair, Nuageux, Pluie, Tempête, Neige, avec transition douce (durée réglable).
 - **Météo** : couverture, densité et type des nuages, direction et vitesse du vent, rafales, précipitations, température, fetch, brouillard.
 - **Soleil** : élévation, azimut, intensité, course automatique, exposition.
-- **Océan** : vagues pointues, écume, tailles des 3 cascades, rayons de LOD (précision max / Gerstner au-delà).
+- **Océan** : vagues de bord qui déferlent avec écume et jet de rive (taille, longueur, hauteur), vagues pointues, écume, tailles des 3 cascades, rayons de LOD (précision max / Gerstner au-delà).
 - **Nuages** : altitude, tailles des motifs, érosion, extinction, Henyey-Greenstein avant/arrière, effet powder, ambiance, poids de l'historique temporel.
 - **Pluie** : zone, vitesse de chute, longueur des traits, luminosité.
+- **Son** : mer au large, ressac synchronisé avec les vagues, vent, pluie, éclairs et tonnerre ; volume de chaque couche. Sons synthétisés en temps réel, remplaçables par de vrais enregistrements WAV (voir `sons/LISEZMOI.txt`).
 - **Plage et rochers** : graine de placement, nombre de blocs, arche rocheuse (le sable reste sec dessous quand il pleut), bouton pour y aller.
 - **Surfaces mouillées** : vitesses de mouillage et de séchage (base, vent, soleil), flaques, ondulations, vue de debug.
 - **Qualité** Bas / Moyen / Ultra, activation de chaque sous-système, vitesse du temps, pause, vsync.
@@ -66,7 +67,9 @@ src/Ocean.*       spectre JONSWAP, IFFT en cascades, LOD FFT -> Gerstner
 src/Clouds.*      bruit Perlin-Worley 3D, ray marching, reprojection, composition
 src/Atmos.*       vent 3D, pluie GPU, humidité, plage et rochers
 src/Terrain.h     hauteur du terrain côté CPU (copie exacte de shaders/Scene.hlsli)
-src/main.cpp      fenêtre, caméra, boucle de frame, panneau de réglages
+src/Audio.*       ambiance sonore (XAudio2, synthèse + WAV optionnels)
+src/main.cpp      fenêtre, caméra, boucle de frame, orages, panneau de réglages
+sons/             emplacement des enregistrements WAV optionnels
 shaders/          tous les shaders HLSL commentés (maths en tête de fichier)
 docs/ARCHITECTURE.md  architecture cible complète du module
 tools/check_shaders.ps1  vérification de tous les shaders avec fxc

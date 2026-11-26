@@ -40,7 +40,8 @@ const char* presetName(WeatherPreset p) {
     case WeatherPreset::Clear: return "Clair";
     case WeatherPreset::Cloudy: return "Nuageux";
     case WeatherPreset::Rain: return "Pluie";
-    case WeatherPreset::Storm: return "Tempete";
+    case WeatherPreset::Storm: return "Tempête";
+    case WeatherPreset::Snow: return "Neige";
     default: return "?";
     }
 }
@@ -67,6 +68,11 @@ WeatherState presetState(WeatherPreset p) {
         s.cloudCoverage = 0.95f; s.cloudDensity = 1.0f; s.cloudType = 0.95f;
         s.windSpeed = 22.0f; s.gustStrength = 0.9f; s.precipitation = 1.0f;
         s.sunIntensity = 0.4f; s.temperatureC = 9.0f; s.fetchKm = 800.0f; s.fogDensity = 0.0008f;
+        break;
+    case WeatherPreset::Snow:
+        s.cloudCoverage = 0.85f; s.cloudDensity = 0.8f; s.cloudType = 0.25f;
+        s.windSpeed = 4.0f; s.gustStrength = 0.25f; s.precipitation = 0.7f;
+        s.sunIntensity = 0.65f; s.temperatureC = -4.0f; s.fogDensity = 0.0009f;
         break;
     default: break;
     }

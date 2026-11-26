@@ -161,7 +161,7 @@ static_assert(sizeof(WetCB) == 32, "WetCB");
 
 void WetnessSystem::create(Gpu& gpu, const QualitySettings& q) {
     m_size = q.wetnessMapSize;
-    map = gpu.createTexture2D(m_size, m_size, DXGI_FORMAT_R16G16_FLOAT, TexUav, L"Wetness.Map");
+    map = gpu.createTexture2D(m_size, m_size, DXGI_FORMAT_R16G16B16A16_FLOAT, TexUav, L"Wetness.Map");
 }
 
 void WetnessSystem::createPipelines(Pipelines& p) { m_pso = p.compute("wetness.hlsl"); }
@@ -174,13 +174,21 @@ void WetnessSystem::update(Gpu& gpu, GpuProfiler& prof, const DemoScene& scene, 
 }
 
 void WetnessSystem::updateGlobal(const WeatherState& w, float dt) {
-    const float rain = saturate(w.precipitation);
+    // Même modèle que shaders/wetness.hlsl, pour les surfaces sans carte (rochers).
+    const float snowFactor = saturate((1.5f - w.temperatureC) / 2.5f);
+    const float rain = saturate(w.precipitation) * (1.0f - snowFactor);
+    const float snowFall = saturate(w.precipitation) * snowFactor;
     globalWetness = saturate(globalWetness + rain * params.wetRate * dt);
     const float sun = saturate(w.sunDir().y) * w.sunIntensity * (1.0f - 0.7f * saturate(w.cloudCoverage));
     float dry = (params.dryBase + params.dryWind * w.windSpeed + params.drySun * sun) *
                 std::max(0.2f, 1.0f + 0.04f * (w.temperatureC - 15.0f));
     dry *= 1.0f - saturate(rain * 4.0f);
     globalWetness = saturate(globalWetness - dry * dt);
+    float melt = std::max(w.temperatureC, 0.0f) * 0.004f + (w.temperatureC >= 0.0f ? sun * 0.004f : 0.0f) + rain * 0.02f;
+    melt *= w.temperatureC > -0.5f ? 1.0f : 0.1f;
+    const float before = globalSnow;
+    globalSnow = saturate(globalSnow + snowFall * 0.008f * dt - melt * dt);
+    if (globalSnow < before) globalWetness = saturate(globalWetness + (before - globalSnow) * 2.0f);
 }
 
 } // namespace me

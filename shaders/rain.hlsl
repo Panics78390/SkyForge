@@ -4,6 +4,8 @@
 //  * Simulation : chaque goutte tend vers (vent local + vitesse terminale) avec une constante
 //    de temps courte (traînée), boîte toroïdale autour de la caméra pour garder la densité
 //    constante, mort et réapparition en haut quand elle touche une surface.
+//  * Neige : une part des particules (SnowFactor, selon la température) devient des flocons :
+//    chute lente (~1 m/s), forte traînée (ils suivent le vent) et flottement latéral.
 #include "Common.hlsli"
 #include "Scene.hlsli"
 
@@ -23,6 +25,8 @@ cbuffer RainCB : register(b1)
 };
 
 struct Drop { float3 pos; float seed; float3 vel; float alive; };
+
+bool IsSnowflake(float seed) { return frac(seed * 7.31 + 0.13) < SnowFactor(); }
 
 StructuredBuffer<Rock>      gRocks : register(t0);
 Texture3D<float4>           gWind  : register(t1);
@@ -68,8 +72,16 @@ void Simulate(uint3 id : SV_DispatchThreadID)
     }
 
     float3 wind = SampleWind(gWind, d.pos).xyz;
-    float3 target = wind + float3(0, -gTerminalSpeed * (0.85 + 0.3 * frac(d.seed * 13.1)), 0);
-    d.vel = lerp(d.vel, target, 1.0 - exp(-gDeltaTime * 4.0));
+    bool snow = IsSnowflake(d.seed);
+    float fall = snow ? 1.1 : gTerminalSpeed;
+    float3 target = wind + float3(0, -fall * (0.85 + 0.3 * frac(d.seed * 13.1)), 0);
+    if (snow)
+    {
+        // Flottement : petite oscillation propre à chaque flocon.
+        float ph = gTime * (1.5 + frac(d.seed * 3.7)) + d.seed * 40.0;
+        target.xz += float2(sin(ph), cos(ph * 1.3)) * 0.6;
+    }
+    d.vel = lerp(d.vel, target, 1.0 - exp(-gDeltaTime * (snow ? 2.5 : 4.0)));
     d.pos += d.vel * gDeltaTime;
 
     // Boîte toroïdale horizontale autour de la caméra.
@@ -82,7 +94,7 @@ void Simulate(uint3 id : SV_DispatchThreadID)
     {
         d.seed = frac(d.seed + 0.618034);
         d.pos = Respawn(i, d.seed, false);
-        d.vel = float3(wind.x, -gTerminalSpeed, wind.z);
+        d.vel = float3(wind.x, -(IsSnowflake(d.seed) ? 1.1 : gTerminalSpeed), wind.z);
     }
     gDrops[i] = d;
 }

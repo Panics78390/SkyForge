@@ -27,7 +27,12 @@ file(GLOB MEO_SHADERS CONFIGURE_DEPENDS shaders/*.hlsl shaders/*.hlsli)
 
 add_executable(SkyForge WIN32 ${MEO_SOURCES} ${MEO_SHADERS})
 set_source_files_properties(${MEO_SHADERS} PROPERTIES HEADER_FILE_ONLY TRUE) # compilés à l'exécution
-target_link_libraries(SkyForge PRIVATE imgui d3d12 dxgi d3dcompiler)
+target_link_libraries(SkyForge PRIVATE imgui d3d12 dxgi d3dcompiler ole32)
+if(MSVC)
+    target_link_libraries(SkyForge PRIVATE xaudio2)
+else()
+    target_link_libraries(SkyForge PRIVATE xaudio2_8)
+endif()
 target_compile_definitions(SkyForge PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 if(MSVC)
     target_compile_options(SkyForge PRIVATE /W4 /permissive- /utf-8)
@@ -40,4 +45,5 @@ endif()
 # Les shaders sont copiés à côté de l'exécutable : on peut les modifier
 # et les recharger à chaud depuis le panneau (bouton « Recharger les shaders »).
 add_custom_command(TARGET SkyForge POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:SkyForge>/shaders)
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:SkyForge>/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/sons $<TARGET_FILE_DIR:SkyForge>/sons)

@@ -26,7 +26,7 @@ struct WeatherState {
     float3 sunDir() const;
 };
 
-enum class WeatherPreset { Clear, Cloudy, Rain, Storm, Count };
+enum class WeatherPreset { Clear, Cloudy, Rain, Storm, Snow, Count };
 const char* presetName(WeatherPreset p);
 WeatherState presetState(WeatherPreset p);
 
@@ -80,7 +80,7 @@ struct FrameConstants {
     float3 camForward;   float puddleAmount;
     float lodNear, lodFar, gerstnerAmp, gerstnerWavelength;
     float3 terrainMin;    float waterLevel;
-    float3 terrainMax;    float debugView;
+    float3 terrainMax;    float snowCover;   // neige globale (toits des rochers)
     uint32_t windRes[3]; float rainBoxSize;
 };
 static_assert(sizeof(FrameConstants) % 16 == 0, "FrameConstants doit être aligné sur 16 octets");

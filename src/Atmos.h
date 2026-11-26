@@ -102,8 +102,9 @@ public:
     // Même modèle côté CPU pour la variable globale d'humidité (toits, murs).
     void updateGlobal(const WeatherState& w, float dt);
     WetnessParams params;
-    Texture map;              // R = humidité, G = flaques
+    Texture map;              // R = humidité, G = flaques, B = neige
     float globalWetness = 0.0f;
+    float globalSnow = 0.0f;   // neige sur les rochers
 private:
     ComPtr<ID3D12PipelineState> m_pso;
     uint32_t m_size = 1024;

@@ -19,8 +19,9 @@ cbuffer RainCB : register(b1)
 
 struct Drop { float3 pos; float seed; float3 vel; float alive; };
 StructuredBuffer<Drop> gDrops : register(t0);
+bool IsSnowflake(float seed) { return frac(seed * 7.31 + 0.13) < SnowFactor(); }
 
-struct VSOut { float4 pos : SV_Position; float alpha : ALPHA; float2 uv : TEXCOORD0; };
+struct VSOut { float4 pos : SV_Position; float alpha : ALPHA; float2 uv : TEXCOORD0; nointerpolation float snow : SNOW; };
 
 VSOut VSMain(uint vid : SV_VertexID)
 {
@@ -31,10 +32,25 @@ VSOut VSMain(uint vid : SV_VertexID)
     static const float2 corners[6] = { float2(-1,0), float2(1,0), float2(-1,1), float2(1,0), float2(1,1), float2(-1,1) };
     float2 k = corners[c];
 
-    float3 axis = d.vel * gStreak;                 // longueur = vitesse x temps d'exposition
     float3 toCam = normalize(gCamPos - d.pos);
-    float3 side = normalize(cross(normalize(axis + 1e-5), toCam)) * 0.006;
-    float3 p = d.pos + side * k.x - axis * k.y;
+    float3 p;
+    bool snow = IsSnowflake(d.seed);
+    if (snow)
+    {
+        // Flocon : petit carré face caméra (rond dans le pixel shader), légère traînée.
+        float size = lerp(0.008, 0.02, frac(d.seed * 23.7));
+        float3 right = normalize(cross(float3(0, 1, 0), toCam));
+        float3 up = cross(toCam, right);
+        float2 q = float2(k.x, k.y * 2.0 - 1.0);
+        p = d.pos + (right * q.x + up * q.y) * size - d.vel * gStreak * 0.15 * (k.y);
+    }
+    else
+    {
+        float3 axis = d.vel * gStreak;             // longueur = vitesse x temps d'exposition
+        float3 side = normalize(cross(normalize(axis + 1e-5), toCam)) * 0.006;
+        p = d.pos + side * k.x - axis * k.y;
+    }
+    o.snow = snow ? 1.0 : 0.0;
     o.pos = mul(float4(p, 1), gViewProj);
     float dist = length(gCamPos - d.pos);
     float fade = saturate(1.0 - dist / gBoxHalf) * saturate(dist / 0.5);
@@ -46,7 +62,13 @@ VSOut VSMain(uint vid : SV_VertexID)
 
 float4 PSMain(VSOut i) : SV_Target
 {
-    float edge = 1.0 - abs(i.uv.x);
     float3 light = AmbientLight(float3(0, 1, 0)) * 1.2 + SunRadiance() * 0.15;
+    if (i.snow > 0.5)
+    {
+        float r = length(float2(i.uv.x, i.uv.y * 2.0 - 1.0));
+        float flake = 1.0 - smoothstep(0.4, 1.0, r);
+        return float4(light * 1.6, i.alpha * flake * 0.9);
+    }
+    float edge = 1.0 - abs(i.uv.x);
     return float4(light, i.alpha * edge * 0.35);
 }

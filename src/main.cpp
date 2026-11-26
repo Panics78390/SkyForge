@@ -11,6 +11,7 @@
 #include "Clouds.h"
 #include "Atmos.h"
 #include "Terrain.h"
+#include "Audio.h"
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
@@ -72,6 +73,12 @@ private:
     RainSystem m_rain;
     WetnessSystem m_wet;
     DemoScene m_scene;
+    AudioEngine m_audio;
+    bool m_lightning = true;
+    float m_nextStrike = 6.0f, m_strikeTime = -100.0f, m_flash = 0.0f;
+    uint32_t m_strikeRng = 0xC0FFEEu;
+    void updateAudioAndLightning(float dt, const WeatherState& w);
+    void strike(float closeness);
 
     Texture m_hdr, m_hdr2, m_depth;
     ComPtr<ID3D12PipelineState> m_tonemap;
@@ -109,6 +116,7 @@ bool App::init(HWND hwnd, UINT w, UINT h) {
     std::wstring dir(exe);
     dir = dir.substr(0, dir.find_last_of(L"\\/"));
     m_pipes.init(m_gpu, dir + L"/shaders");
+    m_audio.init(dir + L"/sons");
 
     m_timeline.setImmediate(presetState(WeatherPreset::Clear));
     loadSettings("skyforge.ini");
@@ -249,6 +257,7 @@ void App::frame() {
         if (w.sunElevationDeg > 180.0f) w.sunElevationDeg -= 360.0f;
     }
     m_wet.updateGlobal(w, dt);
+    updateAudioAndLightning(dt, w);
     m_time += dt;
     m_oceanTime = std::fmod(m_oceanTime + dt, 200.0f); // le spectre boucle sur 200 s
     const float3 wd = w.windDir();
@@ -286,7 +295,7 @@ void App::frame() {
     fc.windCellSize = m_wind.params.cellSize;
     fc.cloudOffset = m_cloudOffset;
     fc.gust = w.gustStrength;
-    fc.exposure = m_exposure;
+    fc.exposure = m_exposure * (1.0f + m_flash * 2.5f); // éclair
     fc.cloudBottom = m_clouds.params.bottom;
     fc.cloudTop = std::max(m_clouds.params.top, m_clouds.params.bottom + 100.0f);
     fc.fogDensity = w.fogDensity;
@@ -300,6 +309,7 @@ void App::frame() {
     fc.terrainMin = m_scene.terrainMin;
     fc.waterLevel = 0.0f;
     fc.terrainMax = m_scene.terrainMax;
+    fc.snowCover = m_enableWetness ? m_wet.globalSnow : 0.0f;
     for (int i = 0; i < 3; ++i) fc.windRes[i] = m_wind.res()[i];
     fc.rainBoxSize = m_rain.params.boxHalf;
     m_gpu.setFrameConstants(&fc, sizeof(fc));
@@ -382,6 +392,63 @@ void App::frame() {
 }
 
 // ---------------------------------------------------------------------------
+// Son et orages
+void App::strike(float closeness) {
+    m_strikeTime = m_time;
+    const float distance = lerp(3500.0f, 250.0f, closeness);
+    m_audio.triggerThunder(distance / 343.0f, closeness); // le son arrive après l'éclair
+}
+
+void App::updateAudioAndLightning(float dt, const WeatherState& w) {
+    auto rnd = [this]() { m_strikeRng = terrain::hash(m_strikeRng + 0x9E3779B9u); return float(m_strikeRng & 0xFFFFFF) / 16777216.0f; };
+    const float snowFactor = saturate((1.5f - w.temperatureC) / 2.5f);
+    const bool storm = m_lightning && m_enableRain && w.precipitation > 0.55f && w.cloudType > 0.6f &&
+                       w.cloudCoverage > 0.7f && snowFactor < 0.5f;
+    if (storm && dt > 0.0f) {
+        m_nextStrike -= dt;
+        if (m_nextStrike <= 0.0f) {
+            strike(rnd());
+            m_nextStrike = 7.0f + rnd() * 22.0f;
+        }
+    }
+    // Éclair : 2 ou 3 scintillements rapides.
+    const float s = m_time - m_strikeTime;
+    m_flash = 0.0f;
+    if (s >= 0.0f && s < 0.6f) {
+        m_flash = std::max({std::exp(-s * 25.0f), s > 0.12f ? std::exp(-(s - 0.12f) * 30.0f) * 0.7f : 0.0f,
+                            s > 0.3f ? std::exp(-(s - 0.3f) * 18.0f) * 0.5f : 0.0f});
+    }
+
+    AudioInputs in;
+    in.windSpeed = w.windSpeed;
+    in.gust = w.gustStrength;
+    in.precip = m_enableRain ? w.precipitation : 0.0f;
+    in.snowFactor = snowFactor;
+    in.shoreAmp = m_enableOcean ? m_ocean.shoreAmplitude() : 0.0f;
+    in.shoreOmega = m_ocean.shoreOmega();
+    in.shorePhaseOffset = terrain::fbm(m_cam.pos.x * 0.015f, 1.3f) * 6.0f; // même formule que ShorePhase()
+    in.oceanTime = m_oceanTime;
+    const float shoreZ = terrain::shoreLine(m_cam.pos.x);
+    in.distToShore = std::sqrt((m_cam.pos.z - shoreZ) * (m_cam.pos.z - shoreZ) + m_cam.pos.y * m_cam.pos.y * 0.25f);
+    const float3 f = m_cam.forward();
+    const float3 right = normalize(cross(float3{0, 1, 0}, f));
+    const float dz = shoreZ - m_cam.pos.z;
+    in.shorePan = std::fabs(dz) > 0.5f ? std::clamp(right.z * (dz > 0 ? 1.0f : -1.0f), -1.0f, 1.0f) : 0.0f;
+    in.camHeight = m_cam.pos.y;
+    float covered = 0.0f;
+    for (const auto& r : m_scene.rocks) {
+        const float c = std::cos(-r.yaw), sn = std::sin(-r.yaw);
+        const float lx = m_cam.pos.x - r.center.x, lz = m_cam.pos.z - r.center.z;
+        const float qx = (c * lx - sn * lz) / r.radii.x, qz = (sn * lx + c * lz) / r.radii.z;
+        const float q2 = qx * qx + qz * qz;
+        if (q2 < 1.0f && r.center.y + r.radii.y * std::sqrt(1.0f - q2) > m_cam.pos.y) covered = 1.0f;
+    }
+    in.covered = covered;
+    in.paused = m_paused;
+    m_audio.setInputs(in);
+}
+
+// ---------------------------------------------------------------------------
 // Interface
 static bool SliderDeg(const char* label, float* v, float mn, float mx) { return ImGui::SliderFloat(label, v, mn, mx, "%.0f°"); }
 
@@ -436,7 +503,7 @@ void App::buildUi(float dt) {
     if (ImGui::CollapsingHeader("Préréglages météo", ImGuiTreeNodeFlags_DefaultOpen)) {
         for (int p = 0; p < int(WeatherPreset::Count); ++p) {
             if (p) ImGui::SameLine();
-            if (ImGui::Button(presetName(WeatherPreset(p)), ImVec2(90, 0))) {
+            if (ImGui::Button(presetName(WeatherPreset(p)), ImVec2(72, 0))) {
                 WeatherState target = presetState(WeatherPreset(p));
                 // On garde la position du soleil choisie par l'utilisateur.
                 target.sunElevationDeg = w.sunElevationDeg;
@@ -479,6 +546,9 @@ void App::buildUi(float dt) {
         ImGui::SliderFloat("Cascade 2 (m)", &o.patchSizes[2], 3.0f, 25.0f, "%.1f");
         ImGui::SliderFloat("LOD : précision max (m)", &o.lodNear, 10.0f, 200.0f, "%.0f");
         ImGui::SliderFloat("LOD : Gerstner au-delà (m)", &o.lodFar, 100.0f, 3000.0f, "%.0f");
+        ImGui::SliderFloat("Vagues de bord", &o.shoreWaves, 0.0f, 2.5f);
+        ImGui::SliderFloat("Longueur des vagues de bord (m)", &o.shoreWavelength, 8.0f, 60.0f, "%.0f");
+        ImGui::SliderFloat("Jet de rive (m)", &o.shoreRunup, 0.0f, 1.2f);
         ImGui::Text("Gerstner : amplitude %.2f m, longueur %.1f m", m_ocean.gerstnerAmplitude(), m_ocean.gerstnerWavelength());
     }
     if (ImGui::CollapsingHeader("Nuages")) {
@@ -538,6 +608,8 @@ void App::buildUi(float dt) {
     if (ImGui::CollapsingHeader("Surfaces mouillées")) {
         auto& p = m_wet.params;
         ImGui::SliderFloat("Humidité globale", &m_wet.globalWetness, 0.0f, 1.0f);
+        ImGui::SliderFloat("Neige sur les rochers", &m_wet.globalSnow, 0.0f, 1.0f);
+        ImGui::TextDisabled("La neige tombe sous ~1 °C (préréglage Neige) et fond au-dessus de 0 °C.");
         ImGui::SliderFloat("Vitesse de mouillage", &p.wetRate, 0.0f, 0.5f);
         ImGui::SliderFloat("Remplissage des flaques", &p.puddleRate, 0.0f, 0.3f);
         ImGui::SliderFloat("Séchage de base", &p.dryBase, 0.0f, 0.05f, "%.4f");
@@ -548,6 +620,24 @@ void App::buildUi(float dt) {
         ImGui::SliderFloat("Échelle du relief (1/m)", &m_scene.puddleScale, 0.02f, 0.6f);
         ImGui::SliderFloat("Ondulations des impacts", &m_scene.rippleAmount, 0.0f, 3.0f);
         ImGui::Checkbox("Afficher humidité (rouge) / flaques (vert)", &m_scene.showWetnessDebug);
+    }
+    if (ImGui::CollapsingHeader("Son")) {
+        auto& a = m_audio.params;
+        ImGui::TextWrapped("%s", m_audio.status().c_str());
+        ImGui::Checkbox("Couper le son", &a.mute);
+        ImGui::SliderFloat("Volume général", &a.master, 0.0f, 2.0f);
+        ImGui::SliderFloat("Mer au large", &a.sea, 0.0f, 2.0f);
+        ImGui::SliderFloat("Ressac (vagues sur le sable)", &a.surf, 0.0f, 2.0f);
+        ImGui::SliderFloat("Vent", &a.wind, 0.0f, 2.0f);
+        ImGui::SliderFloat("Pluie", &a.rain, 0.0f, 2.0f);
+        ImGui::SliderFloat("Tonnerre", &a.thunder, 0.0f, 2.0f);
+        ImGui::Checkbox("Éclairs et tonnerre pendant les orages", &m_lightning);
+        ImGui::SameLine();
+        if (ImGui::Button("Éclair !")) strike(0.4f + 0.6f * float(m_gpu.frameCount() % 100) / 100.0f);
+        ImGui::TextDisabled("Vrais enregistrements : déposer mer.wav, ressac.wav, vent.wav, pluie.wav");
+        ImGui::TextDisabled("dans le dossier « sons » (voir sons/LISEZMOI.txt), puis relancer.");
+        for (int i = 0; i < 4; ++i)
+            ImGui::Text("%s : %s", AudioEngine::kSampleNames[i], m_audio.hasSample(i) ? "enregistrement chargé" : "synthèse");
     }
     if (ImGui::CollapsingHeader("Qualité et simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
         int q = int(m_qualityLevel);
@@ -622,7 +712,8 @@ std::map<std::string, float*> App::settingsTable() {
         {"meteo.soleil_intensite", &w.sunIntensity}, {"meteo.fetch_km", &w.fetchKm}, {"meteo.brouillard", &w.fogDensity},
         {"ocean.choppiness", &o.choppiness}, {"ocean.ecume", &o.foamIntensity}, {"ocean.ecume_decroissance", &o.foamDecay},
         {"ocean.cascade0", &o.patchSizes[0]}, {"ocean.cascade1", &o.patchSizes[1]}, {"ocean.cascade2", &o.patchSizes[2]},
-        {"ocean.lod_proche", &o.lodNear}, {"ocean.lod_loin", &o.lodFar},
+        {"ocean.lod_proche", &o.lodNear}, {"ocean.vagues_bord", &o.shoreWaves},
+        {"ocean.longueur_bord", &o.shoreWavelength}, {"ocean.jet_de_rive", &o.shoreRunup}, {"ocean.lod_loin", &o.lodFar},
         {"nuages.base", &c.bottom}, {"nuages.sommet", &c.top}, {"nuages.taille_forme", &c.shapeSize},
         {"nuages.taille_detail", &c.detailSize}, {"nuages.erosion", &c.detailStrength}, {"nuages.extinction", &c.extinction},
         {"nuages.hg_avant", &c.g1}, {"nuages.hg_arriere", &c.g2}, {"nuages.powder", &c.powder},
@@ -633,7 +724,9 @@ std::map<std::string, float*> App::settingsTable() {
         {"humidite.sechage_vent", &p.dryWind}, {"humidite.sechage_soleil", &p.drySun},
         {"humidite.sechage_flaques", &p.puddleDry}, {"humidite.quantite_flaques", &m_puddleAmount},
         {"humidite.relief", &m_scene.puddleScale}, {"humidite.ondulations", &m_scene.rippleAmount},
-        {"rendu.exposition", &m_exposure}, {"rendu.fov", &m_cam.fovDeg}, {"camera.vitesse", &m_cam.speed},
+        {"rendu.exposition", &m_exposure},
+        {"son.general", &m_audio.params.master}, {"son.mer", &m_audio.params.sea}, {"son.ressac", &m_audio.params.surf},
+        {"son.vent", &m_audio.params.wind}, {"son.pluie", &m_audio.params.rain}, {"son.tonnerre", &m_audio.params.thunder}, {"rendu.fov", &m_cam.fovDeg}, {"camera.vitesse", &m_cam.speed},
         {"camera.x", &m_cam.pos.x}, {"camera.y", &m_cam.pos.y}, {"camera.z", &m_cam.pos.z},
         {"camera.yaw", &m_cam.yaw}, {"camera.pitch", &m_cam.pitch},
         {"plage.graine", &m_rockSeedF}, {"plage.blocs", &m_scatteredF},
@@ -672,6 +765,7 @@ void App::loadSettings(const char* path) {
 }
 
 void App::shutdown() {
+    m_audio.shutdown();
     m_gpu.waitIdle();
     saveSettings("skyforge.ini");
     ImGui_ImplDX12_Shutdown();

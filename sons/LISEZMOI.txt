@@ -1,0 +1,21 @@
+SkyForge - sons
+===============
+
+Par défaut, tous les sons sont synthétisés en temps réel (mer, ressac synchronisé avec
+les vagues, vent, pluie, tonnerre) et réagissent à la météo et à la position de la caméra.
+
+Pour utiliser de vrais enregistrements, déposez dans ce dossier un ou plusieurs fichiers :
+
+  mer.wav     ambiance de mer au large (boucle)
+  ressac.wav  vagues qui se brisent sur le sable (boucle)
+  vent.wav    vent (boucle)
+  pluie.wav   pluie (boucle)
+
+Format : WAV PCM 16 bits ou flottant 32 bits, mono ou stéréo, n'importe quelle fréquence
+(rééchantillonné en 48 kHz). Le volume reste piloté par la météo et la distance au rivage.
+Relancez SkyForge après avoir ajouté les fichiers.
+
+Sources d'enregistrements libres (licence CC0, utilisables sans attribution) :
+  https://freesound.org  (filtrer par licence « Creative Commons 0 »)
+  https://pixabay.com/sound-effects/
+Vérifiez toujours la licence de chaque fichier avant de le redistribuer.

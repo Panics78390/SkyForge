@@ -16,9 +16,10 @@ static_assert(sizeof(OceanCB) == 64, "OceanCB");
 struct OceanDrawCB {
     float patch[4];
     uint32_t gridQuads; float gridExtent, gridLinear, foamIntensity;
-    float choppy; float pad[3];
+    float choppy, shoreAmp, shoreLength, shoreRunup;
+    float shoreOmega, pad2[3];
 };
-static_assert(sizeof(OceanDrawCB) == 48, "OceanDrawCB");
+static_assert(sizeof(OceanDrawCB) == 64, "OceanDrawCB");
 
 void Ocean::create(Gpu& gpu, const QualitySettings& q) {
     m_n = q.fftSize;
@@ -62,6 +63,7 @@ void Ocean::updateAnalytic(const WeatherState& w) {
 
 void Ocean::simulate(Gpu& gpu, GpuProfiler& prof, const WeatherState& w, float dt) {
     ScopedPass sp(prof, "Ocean FFT");
+    m_lastWindForShore = w.windSpeed;
     updateAnalytic(w);
     const float3 wd = w.windDir();
     OceanCB cb{};
@@ -105,6 +107,17 @@ void Ocean::simulate(Gpu& gpu, GpuProfiler& prof, const WeatherState& w, float d
     }
 }
 
+float Ocean::shoreOmega() const {
+    // Dispersion en eau profonde, quantifiée pour que le motif boucle sur la période de 200 s.
+    const float w = std::sqrt(9.81f * 2.0f * kPi / std::max(params.shoreWavelength, 1.0f));
+    const float w0 = 2.0f * kPi / 200.0f;
+    return std::max(1.0f, std::round(w / w0)) * w0;
+}
+
+float Ocean::shoreAmplitude() const {
+    return params.shoreWaves * std::clamp(0.25f + m_lastWindForShore * 0.035f, 0.2f, 1.4f);
+}
+
 void Ocean::draw(Gpu& gpu, const Texture& weatherMap) {
     if (!m_draw) return;
     OceanDrawCB cb{};
@@ -115,6 +128,11 @@ void Ocean::draw(Gpu& gpu, const Texture& weatherMap) {
     cb.gridLinear = 0.012f;
     cb.foamIntensity = params.foamIntensity;
     cb.choppy = params.choppiness;
+    // Houle de bord : grandit avec le vent (borné), réglable par un multiplicateur.
+    cb.shoreAmp = shoreAmplitude();
+    cb.shoreLength = params.shoreWavelength;
+    cb.shoreOmega = shoreOmega();
+    cb.shoreRunup = params.shoreRunup * std::min(1.0f, 0.4f + m_lastWindForShore * 0.05f);
     gpu.bindGraphics(m_draw.Get(), &cb, sizeof(cb),
                      {disp[0], disp[1], disp[2], deriv[0], deriv[1], deriv[2], weatherMap});
     gpu.cmd()->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

@@ -14,7 +14,7 @@ cbuffer SceneCB : register(b1)
 };
 
 StructuredBuffer<Rock> gRocks   : register(t0);
-Texture2D<float2>      gWetMap  : register(t1);
+Texture2D<float4>      gWetMap  : register(t1); // humidité, flaques, neige
 Texture2D<float4>      gWeather : register(t2);
 
 static const uint ROCK_STACKS = 14;
@@ -64,23 +64,93 @@ VSOut VSRock(uint vid : SV_VertexID, uint inst : SV_InstanceID)
     return o;
 }
 
-Surface TerrainMaterial(float3 p, float3 N)
+// --- Sable procédural ---------------------------------------------------------
+// Tout est calculé dans le shader, avec un fondu selon la taille du pixel au sol (fw, en m)
+// pour éviter le scintillement : les grains et les petites rides ne sont visibles que de près.
+
+// Profil asymétrique d'une ride de vent : pente douce au vent, pente raide sous le vent.
+float RippleSlope(float u)
+{
+    float r = frac(u);
+    return r < 0.75 ? 1.0 / 0.75 : -1.0 / 0.25;
+}
+
+Surface TerrainMaterial(float3 p, float3 N, float fw)
 {
     Surface s;
     s.N = N;
     s.f0 = 0.04;
-    float var = TFbm(p.xz * 0.35);
-    s.albedo = lerp(float3(0.62, 0.55, 0.40), float3(0.80, 0.72, 0.55), var);
-    s.roughness = 0.92;
+    s.roughness = 0.93;
     s.porosity = 0.6;
+
+    // Couleur de fond : grandes taches (tri par le vent et les marées) + variations moyennes.
+    float macro = TFbm(p.xz * 0.045);
+    float mid = TFbm(p.xz * 0.6);
+    float3 light = float3(0.80, 0.71, 0.54), dark = float3(0.66, 0.56, 0.40), grey = float3(0.62, 0.60, 0.55);
+    s.albedo = lerp(dark, light, saturate(macro * 1.3 - 0.1));
+    s.albedo = lerp(s.albedo, grey, smoothstep(0.6, 0.8, TFbm(p.xz * 0.02 + 7.0)) * 0.35);
+    s.albedo *= lerp(0.92, 1.06, mid);
+
+    // Grains : minéraux sombres et quartz clairs (cellules de 4 mm), moyennés au loin.
+    float grainVis = 1.0 - smoothstep(0.002, 0.012, fw);
+    if (grainVis > 0.0)
+    {
+        int2 gc = int2(floor(p.xz / 0.004));
+        float gh = HashF(Hash3(uint3(uint2(gc), 5u)));
+        float3 g = gh < 0.07 ? float3(0.28, 0.25, 0.22) : (gh > 0.9 ? float3(0.95, 0.92, 0.86) : s.albedo);
+        s.albedo = lerp(s.albedo, g, grainVis * 0.8);
+    }
+
+    // Coquillages et petits galets épars (cellules de 40 cm).
+    float2 cell = floor(p.xz / 0.4);
+    float3 ch = Hash33(int3(int2(cell), 3));
+    if (ch.x < 0.05)
+    {
+        float2 c = (cell + 0.2 + ch.yz * 0.6) * 0.4;
+        float r = length((p.xz - c) * float2(1.0, 1.6));
+        float shell = 1.0 - smoothstep(0.010, 0.016, r);
+        float3 shellCol = ch.y > 0.5 ? float3(0.93, 0.88, 0.82) : float3(0.55, 0.53, 0.50);
+        s.albedo = lerp(s.albedo, shellCol, shell * (1.0 - smoothstep(0.01, 0.05, fw)));
+    }
+
+    // Laisse de mer : bande d'algues sèches à la limite des plus hautes vagues.
+    float tide = smoothstep(0.75, 0.9, p.y - gWaterLevel) * (1.0 - smoothstep(1.05, 1.3, p.y - gWaterLevel));
+    float wrack = tide * smoothstep(0.55, 0.75, TFbm(p.xz * float2(0.9, 2.5)));
+    s.albedo = lerp(s.albedo, float3(0.13, 0.11, 0.07), wrack * 0.85);
+
     // Oyats (herbes des dunes) sur les zones hautes et peu pentues.
     float grass = smoothstep(2.8, 4.0, p.y) * smoothstep(0.45, 0.6, TFbm(p.xz * 0.12)) * smoothstep(0.75, 0.9, N.y);
-    s.albedo = lerp(s.albedo, lerp(float3(0.30, 0.34, 0.16), float3(0.52, 0.50, 0.28), var), grass);
+    s.albedo = lerp(s.albedo, lerp(float3(0.30, 0.34, 0.16), float3(0.52, 0.50, 0.28), mid), grass);
     s.roughness = lerp(s.roughness, 0.85, grass);
-    // Rides de sable (micro-normale).
-    float ripple = sin(dot(p.xz, float2(0.8, 2.4)) + TFbm(p.xz * 0.6) * 6.0);
-    s.N = normalize(N + float3(0.03, 0, 0.09) * ripple * (1.0 - grass));
+
+    // Rides : rides de vent fines (9 cm) sur le sable sec, rides de courant (40 cm) sur l'estran.
+    float2 wd = normalize(gWindDir.xz + 1e-4);
+    float wob = TFbm(p.xz * 0.7) * 2.5;
+    float uWind = dot(p.xz, wd) / 0.09 + wob;
+    float windRip = RippleSlope(uWind) * 0.035 * (1.0 - smoothstep(0.006, 0.03, fw));
+    float dS = (ShoreLine(p.x + 1.0) - ShoreLine(p.x - 1.0)) * 0.5;
+    float2 sn = normalize(float2(-dS, 1.0));
+    float uTide = dot(p.xz, sn) / 0.4 + wob * 0.6;
+    float tideRip = cos(uTide * 2.0 * PI) * 0.12 * (1.0 - smoothstep(0.03, 0.15, fw));
+    float lowBeach = 1.0 - smoothstep(gWaterLevel + 0.4, gWaterLevel + 1.0, p.y);
+    float2 tilt = wd * windRip * (1.0 - lowBeach) + sn * tideRip * lowBeach;
+    // Grandes ondulations douces visibles de loin.
+    float big = sin(dot(p.xz, float2(0.8, 2.4)) + TFbm(p.xz * 0.6) * 6.0) * 0.04;
+    s.N = normalize(N + float3(tilt.x + big * 0.3, 0, tilt.y + big) * (1.0 - grass));
     return s;
+}
+
+// Paillettes : quelques grains de quartz renvoient le soleil comme de petits miroirs.
+float SandSparkle(float3 p, float3 V, float fw, float wetness)
+{
+    float vis = (1.0 - smoothstep(0.003, 0.015, fw)) * (1.0 - wetness);
+    if (vis <= 0.0) return 0.0;
+    int2 gc = int2(floor(p.xz / 0.003));
+    float3 h = Hash33(int3(gc, 9));
+    if (h.x < 0.985) return 0.0;
+    float3 n = normalize(float3(h.y * 2.0 - 1.0, 1.5, h.z * 2.0 - 1.0));
+    float3 Hh = normalize(gSunDir + V);
+    return pow(saturate(dot(n, Hh)), 400.0) * 40.0 * vis;
 }
 
 Surface RockMaterial(float3 p, float3 N, uint seed)
@@ -105,6 +175,7 @@ float4 PSMain(VSOut i) : SV_Target
     float3 p = i.world;
     float3 V = normalize(gCamPos - p);
     bool isRock = i.rock != NO_ROCK;
+    float fw = length(fwidth(p.xz)) + 1e-5; // taille d'un pixel au sol (m), calculée hors des branches
     float3 N;
     if (isRock)
     {
@@ -118,16 +189,17 @@ float4 PSMain(VSOut i) : SV_Target
     }
     Surface s;
     if (isRock) s = RockMaterial(p, N, gRocks[i.rock].seed);
-    else s = TerrainMaterial(p, N);
+    else s = TerrainMaterial(p, N, fw);
 
     // --- Humidité -----------------------------------------------------------
-    float wetness, puddle = 0.0;
+    float wetness, puddle = 0.0, snowAmt = 0.0;
     float3 puddleN = float3(0, 1, 0);
     if (!isRock)
     {
         float2 uv = (p.xz - gTerrainMin.xz) / (gTerrainMax.xz - gTerrainMin.xz);
-        float2 w = gWetMap.SampleLevel(gLinearClamp, uv, 0);
+        float4 w = gWetMap.SampleLevel(gLinearClamp, uv, 0);
         wetness = w.x;
+        snowAmt = smoothstep(0.02, 0.25, w.z) * smoothstep(0.45, 0.75, N.y);
         // Relief qui place les flaques : creux des zones plates au-dessus de la ligne d'eau.
         float relief = TFbm(p.xz * gPuddleScale);
         float flat = smoothstep(0.985, 0.998, N.y) * smoothstep(gWaterLevel + 1.0, gWaterLevel + 2.0, p.y);
@@ -142,8 +214,15 @@ float4 PSMain(VSOut i) : SV_Target
         float facing = N.y > 0.5 ? 1.0 : saturate(0.25 + dot(N, -gWindDir) * 0.75);
         wetness = gWetness * (covered ? 0.05 : facing);
         wetness = max(wetness, saturate((gWaterLevel + 1.5 - p.y) * 0.8));
+        snowAmt = covered ? 0.0 : smoothstep(0.02, 0.25, gSnowCover) * smoothstep(0.5, 0.8, N.y)
+                                  * smoothstep(gWaterLevel + 1.0, gWaterLevel + 1.8, p.y);
     }
-    ApplyWetness(s, wetness, puddle, puddleN);
+    ApplyWetness(s, wetness, puddle * (1.0 - snowAmt), puddleN);
+    // Neige : couche blanche, mate et lisse qui recouvre le matériau (et ses rides).
+    s.albedo = lerp(s.albedo, float3(0.88, 0.90, 0.94), snowAmt);
+    s.roughness = lerp(s.roughness, 0.6, snowAmt);
+    s.porosity = lerp(s.porosity, 0.0, snowAmt);
+    s.N = normalize(lerp(s.N, N, snowAmt));
 
     // --- Éclairage ----------------------------------------------------------
     float3 L = gSunDir;
@@ -161,6 +240,9 @@ float4 PSMain(VSOut i) : SV_Target
     float3 spec = D_GGX(NoH, a) * V_SmithJoint(NoV, NoL, a) * F;
     float3 diffuse = s.albedo / PI * (1.0 - F);
     float3 col = (diffuse + spec) * sun * NoL;
+    // Paillettes : grains de quartz du sable sec, cristaux de neige.
+    float sparkleBlock = isRock ? 1.0 - snowAmt : saturate(wetness + puddle) * (1.0 - snowAmt);
+    col += sun * NoL * SandSparkle(p, V, fw, sparkleBlock);
 
     // Ambiant + réflexion du ciel (sert de sonde de réflexion).
     col += s.albedo * AmbientLight(s.N) * (isRock ? 0.8 : 1.0);
