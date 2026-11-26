@@ -116,7 +116,9 @@ float4 PSMain(VSOut i) : SV_Target
     {
         N = TerrainNormal(p.xz);
     }
-    Surface s = isRock ? RockMaterial(p, N, gRocks[i.rock].seed) : TerrainMaterial(p, N);
+    Surface s;
+    if (isRock) s = RockMaterial(p, N, gRocks[i.rock].seed);
+    else s = TerrainMaterial(p, N);
 
     // --- Humidité -----------------------------------------------------------
     float wetness, puddle = 0.0;

@@ -28,7 +28,8 @@ $jobs = @(
   @("rain_draw.hlsl",      "vs_5_1", "VSMain", @()),
   @("rain_draw.hlsl",      "ps_5_1", "PSMain", @()),
   @("wetness.hlsl",        "cs_5_1", "main", @()),
-  @("scene_draw.hlsl",     "vs_5_1", "VSMain", @()),
+  @("scene_draw.hlsl",     "vs_5_1", "VSTerrain", @()),
+  @("scene_draw.hlsl",     "vs_5_1", "VSRock", @()),
   @("scene_draw.hlsl",     "ps_5_1", "PSMain", @())
 )
 $failed = 0
